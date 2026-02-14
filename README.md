@@ -1,100 +1,123 @@
-Thaghrawy
+# Thaghrawy
+## AI-Orchestrated MCP Pentesting Server
 
-AI-Orchestrated MCP Pentesting Server
+Thaghrawy is a modular **Multi-Component Platform (MCP) Pentesting Server** designed to centralize reconnaissance, asset intelligence, and vulnerability assessment workflows within a unified, scalable architecture.
 
-Thaghrawy is a modular Multi-Component Platform (MCP) Pentesting Server designed to orchestrate reconnaissance, asset intelligence, and vulnerability workflows through a hybrid Go-powered recon engine and a Python-driven AI decision layer.
+Developed as a graduation project, the system is engineered with production-oriented design principles to ensure extensibility, maintainability, and real-world applicability in offensive security operations.
 
-Built as an academic graduation project, Thaghrawy is engineered with production scalability and real-world security operations in mind.
+---
 
-🚀 Project Vision
+## 📌 Project Overview
 
-Modern penetration testing often relies on manually chaining multiple tools, producing excessive noise and requiring significant human triage.
+Modern penetration testing workflows often rely on manually chaining multiple independent tools. This approach commonly results in:
 
-Thaghrawy introduces:
+- Excessive data noise  
+- Redundant scanning  
+- Limited contextual awareness between tools  
+- High manual triage effort  
 
-Multi-agent orchestration
+Thaghrawy addresses these limitations through:
 
-Context-aware vulnerability execution
+- Structured MCP-based architecture  
+- Multi-agent orchestration  
+- Context-aware tool execution  
+- Modular integration of industry-standard reconnaissance tools  
 
-Intelligent asset classification
+The platform is designed as a scalable blueprint for intelligent pentesting automation.
 
-Modular and scalable MCP architecture
+---
 
-It is designed to evolve beyond academic scope into a practical security automation blueprint.
+## 🏗 System Architecture
 
-🏗 Architecture Overview
-🔹 Recon Engine (Go)
+Thaghrawy is composed of two primary layers:
 
-High-performance concurrent asset discovery:
+### 🔹 Reconnaissance Engine (Go)
 
-Subfinder
+Implemented in **Go** to leverage concurrency and high-performance execution.
 
-Assetfinder
+Responsible for:
 
-Httpx
+- Subdomain Enumeration (Subfinder, Assetfinder)  
+- Live Host Detection (Httpx)  
+- Technology Fingerprinting (WhatWeb)  
+- Directory Enumeration (Gobuster)  
 
-WhatWeb
+This layer focuses on efficient asset discovery and structured output generation.
 
-Gobuster
+---
 
-Built for speed, concurrency, and horizontal scalability.
+### 🔹 MCP Orchestration Layer (Python)
 
-🔹 MCP Orchestration Layer (Python)
+Implemented in **Python** to enable extensibility and intelligent orchestration logic.
 
-Decision-making and coordination:
+Responsible for:
 
-Asset classification
+- Workflow orchestration  
+- Agent coordination  
+- Asset classification  
+- Context-aware vulnerability mapping  
+- Risk prioritization  
 
-Context-aware scanning logic
+This layer transforms raw reconnaissance data into structured pentesting intelligence.
 
-Workflow orchestration
+---
 
-Risk prioritization
+## 🧠 Multi-Agent Design
 
-Agent communication
+The system operates through cooperative functional agents:
 
-Transforms raw enumeration into structured pentesting intelligence.
+1. **Recon Agent**  
+2. **Fingerprinting Agent**  
+3. **Classification Agent**  
+4. **Vulnerability Execution Agent**  
+5. **Reporting Agent**  
 
-🧠 Multi-Agent Structure
+Each agent performs an isolated responsibility while contributing to a unified pentesting workflow, ensuring scalability and maintainability.
 
-Thaghrawy operates through cooperative agents:
+---
 
-Recon Agent
+## 🎯 Core Objectives
 
-Fingerprinting Agent
+- Centralize reconnaissance tools under a unified MCP server  
+- Reduce redundant and unstructured tool chaining  
+- Enable context-aware vulnerability workflows  
+- Support scalable OWASP Top 10 coverage  
+- Establish a foundation for AI-assisted pentesting automation  
 
-Classification Agent
+---
 
-Vulnerability Agent
+## 🔐 OWASP Top 10 Alignment
 
-Reporting Agent
+The architecture is designed to support workflows targeting:
 
-Each agent performs isolated responsibilities while contributing to a unified pentesting workflow.
+- Injection (e.g., XSS, SQL Injection)  
+- Broken Authentication  
+- Security Misconfiguration  
+- Insecure Design  
+- Vulnerable Components  
+- Access Control Issues (e.g., IDOR patterns)  
+- API Security Risks  
 
-🎯 Core Objectives
+Future development phases aim to extend automated detection coverage.
 
-Centralize multiple recon tools under one MCP server
+---
 
-Automate decision-making between tools
+🎓 Academic Context
 
-Reduce redundant scanning
+Thaghrawy was developed as a graduation project within the Faculty of Computer Science and Artificial Intelligence (FCAI).
 
-Provide structured vulnerability workflows
+The project aims to bridge academic research and practical offensive security engineering by implementing scalable system architecture principles within a real-world security domain.
 
-Enable scalable pentesting automation
+⚖ Disclaimer
 
-🔐 OWASP Top 10 Alignment
+This project is intended for educational and authorized security testing purposes only.
+Users are responsible for ensuring compliance with applicable laws and regulations.
 
-The architecture supports workflows targeting:
+📈 Long-Term Vision
 
-Injection (XSS, SQLi)
+Thaghrawy is intended to evolve beyond academic scope into a modular security orchestration platform capable of integration within enterprise penetration testing and red-team environments.
 
-Broken Authentication
+The architecture supports future expansion in AI-driven prioritization, automated workflow decision-making, and enterprise-grade reporting.
 
-Security Misconfiguration
-
-Insecure Design
-
-IDOR & Access Control issues
-
-API Security Risks
+# Install Python Dependencies
+pip install -r requirements.txt
