@@ -102,22 +102,31 @@ Future development phases aim to extend automated detection coverage.
 
 ---
 
-🎓 Academic Context
+## 🎓 Academic Context
 
 Thaghrawy was developed as a graduation project within the Faculty of Computer Science and Artificial Intelligence (FCAI).
 
 The project aims to bridge academic research and practical offensive security engineering by implementing scalable system architecture principles within a real-world security domain.
 
-⚖ Disclaimer
+---
 
-This project is intended for educational and authorized security testing purposes only.
+## ⚖ Disclaimer
+
+This project is intended for **educational and authorized security testing purposes only**.
+
 Users are responsible for ensuring compliance with applicable laws and regulations.
 
-📈 Long-Term Vision
+---
+
+## 📈 Long-Term Vision
 
 Thaghrawy is intended to evolve beyond academic scope into a modular security orchestration platform capable of integration within enterprise penetration testing and red-team environments.
 
-The architecture supports future expansion in AI-driven prioritization, automated workflow decision-making, and enterprise-grade reporting.
+The architecture supports future expansion in:
 
-# Install Python Dependencies
-pip install -r requirements.txt
+- AI-driven prioritization  
+- Automated workflow decision-making  
+- Enterprise-grade reporting  
+- Scalable security orchestration pipelines  
+
+---
