@@ -1,14 +1,36 @@
 import subprocess
 import json
 import asyncio
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
-async def subdomain_enum_subfinder(domain: str) -> Dict[str, Any]:
-    """
-    Enumerate subdomains using ProjectDiscovery's Subfinder.
-    """
-    # -silent removes banner/logs, -json outputs JSON lines
+async def subdomain_enum_subfinder(
+    domain: str, 
+    all_sources: bool = False,
+    recursive: bool = False,
+    sources: Optional[str] = None,
+    exclude_sources: Optional[str] = None,
+    rate_limit: Optional[int] = None,
+    max_time: Optional[int] = None
+) -> Dict[str, Any]:
+    
+    # Base command: always run silent and output JSON
     cmd = ["subfinder", "-d", domain, "-json", "-silent"]
+
+    # Append boolean flags
+    if all_sources:
+        cmd.append("-all")
+    if recursive:
+        cmd.append("-recursive")
+        
+    # Append string/integer flags if they are provided
+    if sources:
+        cmd.extend(["-sources", sources])
+    if exclude_sources:
+        cmd.extend(["-exclude-sources", exclude_sources])
+    if rate_limit:
+        cmd.extend(["-rl", str(rate_limit)])
+    if max_time:
+        cmd.extend(["-max-time", str(max_time)])
 
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -24,12 +46,10 @@ async def subdomain_enum_subfinder(domain: str) -> Dict[str, Any]:
 
         subdomains: set[str] = set()
         
-        # Parse JSON Lines output
         for line in stdout.decode().splitlines():
             if line.strip():
                 try:
                     data = json.loads(line)
-                    # Subfinder JSON output uses the 'host' key for the subdomain
                     if 'host' in data:
                         subdomains.add(data['host'])
                 except json.JSONDecodeError:
@@ -38,6 +58,14 @@ async def subdomain_enum_subfinder(domain: str) -> Dict[str, Any]:
         return {
             "domain": domain,
             "tool": "subfinder",
+            "parameters_used": {
+                "all_sources": all_sources,
+                "recursive": recursive,
+                "sources": sources,
+                "exclude_sources": exclude_sources,
+                "rate_limit": rate_limit,
+                "max_time": max_time
+            },
             "subdomains": sorted(list(subdomains)),
             "count": len(subdomains)
         }
