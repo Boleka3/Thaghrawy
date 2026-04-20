@@ -9,6 +9,7 @@ import mcp.types as types
 # Import your tool implementations
 from tools.amass import subdomain_enum_amass
 from tools.subfinder import subdomain_enum_subfinder
+from tools.httpx import run_httpx
 
 server = Server("recon-server")
 
@@ -83,7 +84,48 @@ async def handle_list_tools() -> list[types.Tool]:
                 "required": ["domain"],
             },
         ),
+
+        types.Tool(
+            name="probe_live_hosts_httpx",
+            description="Probes a list of domains to find live HTTP/HTTPS web servers. Extracts status codes, titles, and web technologies.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "domains": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of domains to probe (e.g., ['example.com', 'dev.example.com'])",
+                    },
+                    "ports": {
+                        "type": "string",
+                        "description": "Comma-separated ports to probe (e.g., '80,443,8080,8443')",
+                    },
+                    "tech_detect": {
+                        "type": "boolean",
+                        "description": "Enable Wappalyzer technology detection to find what the site is built with",
+                        "default": False,
+                    },
+                    "follow_redirects": {
+                        "type": "boolean",
+                        "description": "Follow HTTP redirects",
+                        "default": False,
+                    },
+                    "match_codes": {
+                        "type": "string",
+                        "description": "Only show results with these status codes (e.g., '200,301,403')",
+                    },
+                    "filter_codes": {
+                        "type": "string",
+                        "description": "Hide results with these status codes (e.g., '404,500')",
+                    }
+                },
+                "required": ["domains"],
+            },
+        ),
+
     ]
+        
+   
 
 
 @server.call_tool()
@@ -109,6 +151,16 @@ async def handle_call_tool(
                 exclude_sources=arguments.get("exclude_sources"),
                 rate_limit=arguments.get("rate_limit"),
                 max_time=arguments.get("max_time")
+            )
+
+        elif name == "probe_live_hosts_httpx":
+            result = await run_httpx(
+                domains=arguments["domains"],
+                ports=arguments.get("ports"),
+                tech_detect=arguments.get("tech_detect", False),
+                follow_redirects=arguments.get("follow_redirects", False),
+                match_codes=arguments.get("match_codes"),
+                filter_codes=arguments.get("filter_codes")
             )
             
         else:
