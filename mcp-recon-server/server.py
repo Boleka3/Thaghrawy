@@ -10,6 +10,7 @@ import mcp.types as types
 from tools.amass import subdomain_enum_amass
 from tools.subfinder import subdomain_enum_subfinder
 from tools.httpx import run_httpx
+from tools.ffuf import run_ffuf
 
 server = Server("recon-server")
 
@@ -84,7 +85,7 @@ async def handle_list_tools() -> list[types.Tool]:
                 "required": ["domain"],
             },
         ),
-
+# ---- HTTPX TOOL  ----
         types.Tool(
             name="probe_live_hosts_httpx",
             description="Probes a list of domains to find live HTTP/HTTPS web servers. Extracts status codes, titles, and web technologies.",
@@ -123,6 +124,55 @@ async def handle_list_tools() -> list[types.Tool]:
             },
         ),
 
+        # --- FFUF TOOL ---
+        types.Tool(
+            name="fuzz_web_directories_ffuf",
+            description="Fuzz directories, files, and APIs on a web server using ffuf. The URL must contain the keyword 'FUZZ'.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "Target URL containing the word FUZZ (e.g., 'https://target.com/FUZZ')",
+                    },
+                    "wordlist": {
+                        "type": "string",
+                        "description": "Absolute path to the wordlist file on the server",
+                        "default": "/usr/share/wordlists/dirb/common.txt",
+                    },
+                    "method": {
+                        "type": "string",
+                        "description": "HTTP method to use (GET, POST, PUT, etc.)",
+                        "default": "GET",
+                    },
+                    "headers": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Custom headers to include (e.g., ['Authorization: Bearer token123', 'Cookie: session=abc'])",
+                    },
+                    "match_codes": {
+                        "type": "string",
+                        "description": "Comma-separated HTTP status codes to match",
+                        "default": "200,204,301,302,307,401,403,405,500",
+                    },
+                    "filter_codes": {
+                        "type": "string",
+                        "description": "Comma-separated HTTP status codes to ignore (e.g., '404')",
+                    },
+                    "filter_size": {
+                        "type": "string",
+                        "description": "Filter responses by specific size (useful for ignoring standard 404 pages that return a 200 code)",
+                    },
+                    "threads": {
+                        "type": "integer",
+                        "description": "Number of concurrent threads",
+                        "default": 40,
+                    }
+                },
+                "required": ["url"],
+            },
+        ),
+
     ]
         
    
@@ -152,7 +202,7 @@ async def handle_call_tool(
                 rate_limit=arguments.get("rate_limit"),
                 max_time=arguments.get("max_time")
             )
-
+            # Route to httpx
         elif name == "probe_live_hosts_httpx":
             result = await run_httpx(
                 domains=arguments["domains"],
@@ -162,7 +212,18 @@ async def handle_call_tool(
                 match_codes=arguments.get("match_codes"),
                 filter_codes=arguments.get("filter_codes")
             )
-            
+            # Route to ffuf
+        elif name == "fuzz_web_directories_ffuf":
+            result = await run_ffuf(
+                url=arguments["url"],
+                wordlist=arguments.get("wordlist", "/usr/share/wordlists/dirb/common.txt"),
+                method=arguments.get("method", "GET"),
+                headers=arguments.get("headers"),
+                match_codes=arguments.get("match_codes", "200,204,301,302,307,401,403,405,500"),
+                filter_codes=arguments.get("filter_codes"),
+                filter_size=arguments.get("filter_size"),
+                threads=arguments.get("threads", 40)
+            )
         else:
             raise ValueError(f"Unknown tool: {name}")
 
