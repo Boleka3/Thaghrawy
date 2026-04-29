@@ -11,6 +11,7 @@ from tools.amass import subdomain_enum_amass
 from tools.subfinder import subdomain_enum_subfinder
 from tools.httpx import run_httpx
 from tools.ffuf import run_ffuf
+from tools.gobuster import run_gobuster
 
 server = Server("recon-server")
 
@@ -173,6 +174,46 @@ async def handle_list_tools() -> list[types.Tool]:
             },
         ),
 
+        # --- gobuster TOOL ---
+        types.Tool(
+            name="enumerate_gobuster",
+            description="Run gobuster for directory/file brute-forcing (dir), DNS subdomain brute-forcing (dns), or Virtual Host discovery (vhost).",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "mode": {
+                        "type": "string",
+                        "enum": ["dir", "dns", "vhost"],
+                        "description": "The mode to run gobuster in: 'dir' (directories), 'dns' (subdomains), 'vhost' (virtual hosts)",
+                    },
+                    "target": {
+                        "type": "string",
+                        "description": "Target URL for dir/vhost (e.g., 'https://example.com') or domain for dns (e.g., 'example.com')",
+                    },
+                    "wordlist": {
+                        "type": "string",
+                        "description": "Absolute path to the wordlist file on the server",
+                        "default": "/usr/share/wordlists/dirb/common.txt",
+                    },
+                    "threads": {
+                        "type": "integer",
+                        "description": "Number of concurrent threads",
+                        "default": 10,
+                    },
+                    "status_codes": {
+                        "type": "string",
+                        "description": "Comma-separated HTTP status codes to match (only used in 'dir' mode)",
+                        "default": "200,204,301,302,307,401,403",
+                    },
+                    "extensions": {
+                        "type": "string",
+                        "description": "Comma-separated file extensions to search for (e.g., 'php,html,txt'). Only used in 'dir' mode.",
+                    }
+                },
+                "required": ["mode", "target"],
+            },
+        ),
+
     ]
         
    
@@ -223,6 +264,16 @@ async def handle_call_tool(
                 filter_codes=arguments.get("filter_codes"),
                 filter_size=arguments.get("filter_size"),
                 threads=arguments.get("threads", 40)
+            )
+            # Route to gobuster
+        elif name == "enumerate_gobuster":
+            result = await run_gobuster(
+                mode=arguments["mode"],
+                target=arguments["target"],
+                wordlist=arguments.get("wordlist", "/usr/share/wordlists/dirb/common.txt"),
+                threads=arguments.get("threads", 10),
+                status_codes=arguments.get("status_codes", "200,204,301,302,307,401,403"),
+                extensions=arguments.get("extensions")
             )
         else:
             raise ValueError(f"Unknown tool: {name}")
