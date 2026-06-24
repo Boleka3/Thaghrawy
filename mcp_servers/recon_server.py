@@ -1,17 +1,9 @@
-"""Consolidated recon MCP server.
+"""Recon MCP server.
 
-Merges the best parts of the three recon implementations found in this
-project's history:
-  - webpentest-mcp-server/recon_server.py: JSON envelope + workspace
-    persistence pattern, and most of the parsers below.
-  - Thaghrawy/mcp-recon-server: amass, ffuf (full param set), gobuster
-    argv-building patterns - now under mcp/tools/.
-  - Fixed and added: amass, ffuf, whois (the last was broken in the
-    original Thaghrawy tools/whois.py - missing imports, undefined vars).
-
-All scan tools delegate to mcp/tools/<tool>.py for testable, framework-free
-logic; this file is just MCP registration + the few tools that don't
-warrant their own module.
+Registers each recon tool with FastMCP. All scan tools delegate to
+mcp_servers/tools/<tool>.py for testable, framework-free logic; this file
+is just MCP registration plus the few tools that don't warrant their own
+module.
 """
 import json
 import os
