@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>RedTeam AI</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <span class="brand">REDTEAM<span class="brand-accent">_AI</span></span>
+    <span id="engagement-label" class="engagement-label">no engagement selected</span>
+  </header>
+
+  <main class="panels">
+    <section class="panel panel-engagements">
+      <h2>ENGAGEMENTS</h2>
+      <div class="new-engagement">
+        <input id="new-engagement-name" placeholder="name" />
+        <input id="new-engagement-target" placeholder="target" />
+        <button id="new-engagement-btn">[+] NEW</button>
+      </div>
+      <div class="section-label">ACTIVE</div>
+      <ul id="active-engagements" class="engagement-list"></ul>
+      <div class="section-label">PAST</div>
+      <ul id="past-engagements" class="engagement-list"></ul>
+    </section>
+
+    <section class="panel panel-chat">
+      <h2>AGENT CHAT</h2>
+      <div id="chat-log" class="chat-log"></div>
+      <div class="chat-input-row">
+        <span class="prompt-caret">&gt;</span>
+        <input id="chat-input" autocomplete="off" placeholder="ask the agent..." />
+      </div>
+    </section>
+
+    <section class="panel panel-findings">
+      <h2>FINDINGS</h2>
+      <ul id="findings-list" class="findings-list"></ul>
+      <button id="add-finding-btn">[+] Add Finding</button>
+    </section>
+  </main>
+
+  <footer class="statusbar">
+    <span>[F1] New Engagement</span>
+    <span>[F2] Save Finding</span>
+    <span>[F3] Search Memory</span>
+    <span>[F9] Settings</span>
+    <span id="conn-status" class="conn-status conn-disconnected">DISCONNECTED</span>
+  </footer>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
