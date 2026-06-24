@@ -224,7 +224,9 @@ def parse_tool_output(tool_name: str, raw_output: str) -> dict[str, Any]:
 _RECON_TOOL_NAMES = (
     "amass_scan", "subfinder_scan", "httpx_scan", "ffuf_fuzz", "gobuster_scan",
     "katana_crawl", "nuclei_scan", "whois_lookup", "web_tech_detect", "assetfinder_scan",
-    "naabu_scan", "dnsx_scan", "list_workspace", "read_file", "grep_workspace",
+    "naabu_scan", "dnsx_scan", "nmap_scan", "wpscan_scan", "testssl_scan", "wafw00f_scan",
+    "searchsploit_lookup", "arjun_scan", "masscan_scan", "enum4linux_scan",
+    "list_workspace", "read_file", "grep_workspace",
 )
 _EXPLOIT_TOOL_NAMES = ("sqlmap_scan", "nikto_scan", "hydra_bruteforce")
 

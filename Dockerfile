@@ -5,13 +5,15 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN for i in 1 2 3; do \
       apt-get update && apt-get install -y --no-install-recommends \
         python3 python3-pip nmap whatweb gobuster nikto sqlmap hydra ffuf \
-        amass whois dnsutils ca-certificates && break || sleep 5; \
+        amass whois dnsutils ca-certificates \
+        subfinder httpx-toolkit nuclei naabu dnsx katana assetfinder \
+        wpscan testssl.sh wafw00f exploitdb masscan enum4linux && break || sleep 5; \
     done && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 COPY requirements.txt .
-RUN pip3 install --no-cache-dir --break-system-packages -r requirements.txt
+RUN pip3 install --no-cache-dir --break-system-packages -r requirements.txt arjun
 
 COPY . .
 

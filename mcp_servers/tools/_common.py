@@ -1,9 +1,9 @@
 """Shared helpers for MCP recon tool wrappers: sanitization, workspace
 persistence, and a structured subprocess runner with a real timeout.
 
-Every tool in mcp/tools/ builds an argv list (never shell=True) and calls
-run_command() so behavior - timeouts, output persistence, JSON envelope
-shape - stays consistent across tools.
+Every tool in mcp_servers/tools/ builds an argv list (never shell=True) and
+calls run_command() so behavior - timeouts, output persistence, JSON
+envelope shape - stays consistent across tools.
 """
 from __future__ import annotations
 

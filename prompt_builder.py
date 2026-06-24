@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from skills import methodology_reference
+
 BASE_PROMPT = "You are Thaghrawy, an autonomous AI penetration testing assistant."
 
 MEMORY_INSTRUCTIONS = """
@@ -62,6 +64,7 @@ class SystemPromptBuilder:
         sections = [
             BASE_PROMPT,
             MEMORY_INSTRUCTIONS,
+            f"\n{methodology_reference()}",
             f"\nSCOPE: {self.target}",
             "\nCONSTRAINTS:",
             "\n".join(f"- {c}" for c in self.constraints),

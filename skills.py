@@ -1,81 +1,93 @@
-from dataclasses import dataclass
-from typing import List, Dict, Any
+"""Methodology guidance injected into the system prompt (see
+prompt_builder.py). Each Skill maps a phase of a pentest engagement to
+concrete tool names and OWASP/PTES-style guidance, so the agent's
+free-form tool-calling loop still has a methodology to follow instead of
+guessing which of the ~30 registered tools to reach for next.
+
+This does not gate or order tool calls - core/agent.py's ReAct loop stays
+fully dynamic. It's reference material in the prompt, not a state machine.
+"""
+from dataclasses import dataclass, field
+from typing import List
 
 
 @dataclass
 class Skill:
     name: str
     prompt: str
-    tools: List[str]
-    examples: List[Dict[str, Any]]
-    output_format: str
+    tools: List[str] = field(default_factory=list)
 
-
-_OUTPUT_FORMAT = '{"thought": "reasoning", "tool_call": "tool_name", "params": {...}}'
 
 SKILLS = {
     "recon": Skill(
         name="Reconnaissance",
-        prompt="Identify open ports, services, subdomains, and web technologies on the target.",
-        tools=["amass_scan", "subfinder_scan", "httpx_scan", "katana_crawl", "web_tech_detect", "gobuster_scan"],
-        examples=[
-            {
-                "input": "Scan the target example.com",
-                "output": (
-                    '{"thought": "I will start by enumerating subdomains.", '
-                    '"tool_call": "subfinder_scan", "params": {"domain": "example.com"}}'
-                ),
-            }
+        prompt=(
+            "Map the attack surface before touching anything else: live hosts, open "
+            "ports/services, subdomains, DNS records, and the web/tech stack in use. "
+            "Passive techniques (whois, subfinder, assetfinder) before active ones "
+            "(nmap, masscan) when scope/stealth matters."
+        ),
+        tools=[
+            "amass_scan", "subfinder_scan", "assetfinder_scan", "dnsx_scan", "whois_lookup",
+            "httpx_scan", "naabu_scan", "nmap_scan", "masscan_scan", "web_tech_detect",
+            "wafw00f_scan", "katana_crawl",
         ],
-        output_format=_OUTPUT_FORMAT,
+    ),
+    "content_discovery": Skill(
+        name="Content & Parameter Discovery",
+        prompt=(
+            "Find what isn't linked: hidden directories/files (gobuster, ffuf), JS-referenced "
+            "endpoints (katana), and undocumented GET/POST/JSON parameters (arjun) - the "
+            "extra parameter is often the injection point the obvious form doesn't show."
+        ),
+        tools=["gobuster_scan", "ffuf_fuzz", "katana_crawl", "arjun_scan"],
     ),
     "vuln_scan": Skill(
         name="Vulnerability Scanning",
-        prompt="Scan the identified services for known vulnerabilities.",
-        tools=["nuclei_scan", "ffuf_fuzz"],
-        examples=[
-            {
-                "input": "Check the web server for vulnerabilities.",
-                "output": (
-                    '{"thought": "I will use nuclei to check for known vulnerability templates.", '
-                    '"tool_call": "nuclei_scan", "params": {"target": "http://localhost:80"}}'
-                ),
-            }
-        ],
-        output_format=_OUTPUT_FORMAT,
+        prompt=(
+            "Run breadth-first vulnerability scanners against discovered hosts/services "
+            "before attempting manual exploitation: nuclei for known CVE/misconfig templates, "
+            "nikto for web server issues, testssl for TLS weaknesses, wpscan if the stack is "
+            "WordPress. Cross-reference identified software versions with searchsploit."
+        ),
+        tools=["nuclei_scan", "nikto_scan", "testssl_scan", "wpscan_scan", "searchsploit_lookup"],
     ),
     "exploit": Skill(
         name="Exploitation",
-        prompt="Attempt to exploit identified vulnerabilities to gain access or extract data.",
-        tools=["sqlmap_scan", "hydra_bruteforce", "nikto_scan"],
-        examples=[
-            {
-                "input": "Try to exploit potential SQL injection on login.php",
-                "output": (
-                    '{"thought": "I will use sqlmap to test for SQL injection.", '
-                    '"tool_call": "sqlmap_scan", "params": {"url": "http://localhost/login.php"}}'
-                ),
-            }
-        ],
-        output_format=_OUTPUT_FORMAT,
+        prompt=(
+            "Only attempt exploitation against in-scope targets with a specific suspected "
+            "vulnerability backed by recon/scan evidence - never exploit speculatively. "
+            "sqlmap for confirmed/suspected SQL injection points, hydra for credential "
+            "brute-forcing where lockout policy allows it, searchsploit to check for a public "
+            "PoC for an identified version before reinventing one by hand."
+        ),
+        tools=["sqlmap_scan", "hydra_bruteforce", "searchsploit_lookup", "shell"],
+    ),
+    "network_ad": Skill(
+        name="Network & Active Directory",
+        prompt=(
+            "When the engagement scope extends past a single web app into an internal "
+            "network/domain segment: port-sweep with nmap/masscan, then enumerate SMB "
+            "shares, users, and password policy with enum4linux before considering any "
+            "credential attacks."
+        ),
+        tools=["nmap_scan", "masscan_scan", "enum4linux_scan"],
     ),
     "report": Skill(
         name="Reporting",
         prompt=(
-            "Consolidate all findings into a structured penetration testing report. "
-            'CRITICAL: Escape all double quotes (\\") and newlines (\\\\n) inside the '
-            "content_markdown JSON string. Do not use raw newlines."
+            "Persist every confirmed vulnerability via save_finding as soon as it's "
+            "confirmed - don't batch them up to remember later. When the engagement "
+            "wraps up, consolidate everything into generate_report."
         ),
-        tools=["generate_report", "save_finding"],
-        examples=[
-            {
-                "input": "Generate the final report based on our findings.",
-                "output": (
-                    '{"thought": "I will consolidate the data and generate the report.", '
-                    '"tool_call": "generate_report", "params": {"content_markdown": "# Pentest Report..."}}'
-                ),
-            }
-        ],
-        output_format=_OUTPUT_FORMAT,
+        tools=["save_finding", "save_technique", "generate_report"],
     ),
 }
+
+
+def methodology_reference() -> str:
+    """Render all skills as a compact reference block for the system prompt."""
+    lines = ["METHODOLOGY REFERENCE (guidance, not a required order):"]
+    for skill in SKILLS.values():
+        lines.append(f"- {skill.name}: {skill.prompt} [tools: {', '.join(skill.tools)}]")
+    return "\n".join(lines)
