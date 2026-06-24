@@ -72,13 +72,18 @@ python main.py               # Starts FastAPI on port 8000
 ## Current Agent Tools
 - `search_memory`, `save_finding`, `save_technique`, `load_engagement_context` — memory
 - `amass_scan`, `subfinder_scan`, `httpx_scan`, `ffuf_fuzz`, `gobuster_scan`, `katana_crawl`,
-  `nuclei_scan`, `whois_lookup`, `web_tech_detect`, `assetfinder_scan`, `naabu_scan`, `dnsx_scan` — recon
+  `nuclei_scan`, `whois_lookup`, `web_tech_detect`, `assetfinder_scan`, `naabu_scan`, `dnsx_scan`,
+  `nmap_scan`, `masscan_scan`, `wpscan_scan`, `testssl_scan`, `wafw00f_scan`,
+  `searchsploit_lookup`, `arjun_scan`, `enum4linux_scan` — recon / vuln scanning
 - `list_workspace`, `read_file`, `grep_workspace` — recon workspace utilities
 - `sqlmap_scan`, `nikto_scan`, `hydra_bruteforce` — exploitation (dangerous=True)
 - `generate_report` — reporting
 - `shell` — generic shell execution (dangerous=True, logged, gated by `guardrails.py`)
 - `http_request` — generic HTTP requests
 - `parse_tool_output` — filter/truncate raw nmap/sqlmap/nikto/generic output
+
+See `skills.py` for the methodology guidance (which tools map to which phase
+of an engagement) injected into every system prompt via `prompt_builder.py`.
 
 ## Embedding Model
 Set `EMBEDDING_MODEL_PATH` in `.env` to a local snapshot directory to avoid re-downloading;

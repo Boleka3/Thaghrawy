@@ -22,6 +22,14 @@ from mcp_servers.tools.gobuster import gobuster_scan as _gobuster_scan
 from mcp_servers.tools.katana import katana_crawl as _katana_crawl
 from mcp_servers.tools.nuclei import nuclei_scan as _nuclei_scan
 from mcp_servers.tools.whois import whois_lookup as _whois_lookup
+from mcp_servers.tools.nmap import nmap_scan as _nmap_scan
+from mcp_servers.tools.wpscan import wpscan_scan as _wpscan_scan
+from mcp_servers.tools.testssl import testssl_scan as _testssl_scan
+from mcp_servers.tools.wafw00f import wafw00f_scan as _wafw00f_scan
+from mcp_servers.tools.searchsploit import searchsploit_lookup as _searchsploit_lookup
+from mcp_servers.tools.arjun import arjun_scan as _arjun_scan
+from mcp_servers.tools.masscan import masscan_scan as _masscan_scan
+from mcp_servers.tools.enum4linux import enum4linux_scan as _enum4linux_scan
 
 mcp = FastMCP("recon")
 
@@ -101,6 +109,65 @@ async def nuclei_scan(target: str, templates: str = "", severity: str = "", tags
 async def whois_lookup(domain: str) -> str:
     """Look up domain registration details (registrar, dates, name servers, status)."""
     return json.dumps(_whois_lookup(domain), indent=2)
+
+
+@mcp.tool()
+async def nmap_scan(
+    target: str,
+    ports: str = "",
+    scan_type: str = "default",
+    service_detection: bool = True,
+) -> str:
+    """Scan for open ports/services with nmap. scan_type: 'default' (top
+    1000 TCP), 'quick' (-F), 'full' (-p-), or 'udp'."""
+    return json.dumps(_nmap_scan(target, ports, scan_type, service_detection), indent=2)
+
+
+@mcp.tool()
+async def wpscan_scan(target: str, enumerate: str = "vp,vt,u") -> str:
+    """Scan a WordPress site for core/plugin/theme vulnerabilities and
+    enumerate users."""
+    return json.dumps(_wpscan_scan(target, enumerate), indent=2)
+
+
+@mcp.tool()
+async def testssl_scan(target: str, fast: bool = True) -> str:
+    """Audit TLS/SSL configuration: protocols, ciphers, cert issues, and
+    known vulnerabilities (Heartbleed, POODLE, FREAK, DROWN, etc.)."""
+    return json.dumps(_testssl_scan(target, fast), indent=2)
+
+
+@mcp.tool()
+async def wafw00f_scan(target: str) -> str:
+    """Detect whether a target is behind a WAF, and identify which one."""
+    return json.dumps(_wafw00f_scan(target), indent=2)
+
+
+@mcp.tool()
+async def searchsploit_lookup(query: str) -> str:
+    """Search the local Exploit-DB mirror for known public exploits
+    matching a software name/version."""
+    return json.dumps(_searchsploit_lookup(query), indent=2)
+
+
+@mcp.tool()
+async def arjun_scan(url: str, method: str = "GET", threads: int = 10) -> str:
+    """Discover hidden HTTP GET/POST/JSON parameters on an endpoint."""
+    return json.dumps(_arjun_scan(url, method, threads), indent=2)
+
+
+@mcp.tool()
+async def masscan_scan(target: str, ports: str = "1-1000", rate: int = 1000) -> str:
+    """Fast async port scan of a host/CIDR range. Pair with nmap_scan for
+    service/version detection on the ports it finds."""
+    return json.dumps(_masscan_scan(target, ports, rate), indent=2)
+
+
+@mcp.tool()
+async def enum4linux_scan(target: str) -> str:
+    """Enumerate SMB shares, users, groups, OS info, and password policy
+    on a Windows/Samba host."""
+    return json.dumps(_enum4linux_scan(target), indent=2)
 
 
 # ══════════════════════════════════════════════

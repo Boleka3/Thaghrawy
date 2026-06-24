@@ -47,18 +47,26 @@ api/
 frontend/                 dark hacker-themed single page UI
 guardrails.py             JSON enforcement + dangerous-shell-command gating/logging
 output_filter.py          per-tool output truncation/extraction
-prompt_builder.py         system prompt construction, memory injection
-skills.py                 legacy phase/skill metadata (recon/vuln_scan/exploit/report)
+prompt_builder.py         system prompt construction, memory + methodology injection
+skills.py                 methodology guidance per engagement phase (recon/exploit/etc.)
 reports/                  example real pentest reports from earlier engagements
 ```
 
 ## MCP tool servers
 
-`mcp_servers/recon_server.py` registers all recon tools (subdomain enum, HTTP probing,
-fuzzing, crawling, vuln templates, whois, etc.) as MCP tools, backed by testable
-wrapper functions in `mcp_servers/tools/`. Every scan tool goes through
+`mcp_servers/recon_server.py` registers ~30 recon/scanning tools (subdomain enum,
+port scanning, HTTP probing, fuzzing, crawling, vuln templates, TLS/WAF checks,
+parameter discovery, SMB enumeration, exploit-DB lookup, whois, etc.) as MCP tools,
+backed by testable wrapper functions in `mcp_servers/tools/`. `mcp_servers/exploit_server.py`
+holds the three tools that actively attack a target (sqlmap, nikto, hydra) and are
+registered with `dangerous=True`. Every scan tool goes through
 `mcp_servers/tools/_common.py::run_command()`, which enforces a real subprocess
 timeout so a hung scan can't block the agent forever.
+
+`skills.py` maps each phase of a pentest (recon, content discovery, vuln scanning,
+exploitation, network/AD, reporting) to the tools relevant to it and OWASP/PTES-style
+guidance text. `prompt_builder.py` injects this as a methodology reference into every
+system prompt — it's guidance for the LLM's tool-calling loop, not a rigid phase gate.
 
 Note the directory is `mcp_servers/`, not `mcp/` — naming it `mcp/` would shadow the
 installed `mcp` SDK package that these servers themselves import
