@@ -1,4 +1,4 @@
-# CLAUDE.md — RedTeam AI Harness
+# CLAUDE.md — Thaghrawy
 
 ## What This Project Is
 AI-powered pentesting assistant with persistent cross-engagement memory.

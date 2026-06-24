@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-BASE_PROMPT = "You are RedTeam AI, an autonomous AI penetration testing assistant."
+BASE_PROMPT = "You are Thaghrawy, an autonomous AI penetration testing assistant."
 
 MEMORY_INSTRUCTIONS = """
 You have persistent memory across engagements. Before answering any technical
