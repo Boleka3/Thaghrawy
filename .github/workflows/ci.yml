@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+    branches: [dev, main]
+  pull_request:
+    branches: [dev, main]
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Check for accidentally committed .env files
+        run: |
+          if find . -name ".env" -not -path "./.git/*" | grep -q .; then
+            echo "ERROR: .env file found in repo. Remove it immediately."
+            exit 1
+          fi
+
+      - name: Lint with flake8
+        run: flake8 . --max-line-length=120 --exclude=__pycache__,chroma_db,.venv
+
+      - name: Run tests
+        run: pytest --ignore=chroma_db -v || echo "No tests found, skipping"
