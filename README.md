@@ -1,9 +1,7 @@
 # Thaghrawy
 
 An AI-assisted penetration testing harness with persistent, cross-engagement
-memory. Built as a graduation project on top of three earlier prototypes
-(`ai_pentest_agent`, `webpentest-mcp-server`, and this repo's own
-`mcp-recon-server`), now consolidated into one codebase.
+memory.
 
 > ⚠️ For authorized security testing only. Use only against systems you own
 > or have explicit written permission to test.
@@ -54,17 +52,13 @@ skills.py                 legacy phase/skill metadata (recon/vuln_scan/exploit/r
 reports/                  example real pentest reports from earlier engagements
 ```
 
-## MCP consolidation
+## MCP tool servers
 
-This project's history had three separate recon implementations:
-`ai_pentest_agent/mcp_servers/recon_server.py`, `webpentest-mcp-server/recon_server.py`,
-and this repo's own `mcp-recon-server/`. `mcp_servers/recon_server.py` here is the
-merge: the JSON-envelope + workspace-persistence pattern and most parsers came from
-`webpentest-mcp-server` (it was the most complete of the three), and `amass`/`ffuf`
-were ported from this repo's tools (fixing `whois.py`, which had missing imports and
-an undefined variable in the original). Every scan tool now goes through
-`mcp_servers/tools/_common.py::run_command()`, which adds a real subprocess timeout —
-none of the three originals had one, so a hung scan used to block the agent forever.
+`mcp_servers/recon_server.py` registers all recon tools (subdomain enum, HTTP probing,
+fuzzing, crawling, vuln templates, whois, etc.) as MCP tools, backed by testable
+wrapper functions in `mcp_servers/tools/`. Every scan tool goes through
+`mcp_servers/tools/_common.py::run_command()`, which enforces a real subprocess
+timeout so a hung scan can't block the agent forever.
 
 Note the directory is `mcp_servers/`, not `mcp/` — naming it `mcp/` would shadow the
 installed `mcp` SDK package that these servers themselves import
@@ -73,8 +67,7 @@ installed `mcp` SDK package that these servers themselves import
 ## Multi-LLM support
 
 Set `LLM_PROVIDER` in `.env` to `anthropic`, `openai`, or `ollama`. `OpenAIProvider`
-also accepts `OPENAI_BASE_URL` for any OpenAI-compatible endpoint (e.g. LM Studio),
-covering the local-LLM setup the original prototype used.
+also accepts `OPENAI_BASE_URL` for any OpenAI-compatible endpoint (e.g. LM Studio).
 
 ## Branch map
 
