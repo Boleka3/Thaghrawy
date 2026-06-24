@@ -1,4 +1,4 @@
-# RedTeam AI
+# Thaghrawy
 
 An AI-assisted penetration testing harness with persistent, cross-engagement
 memory. Built as a graduation project on top of three earlier prototypes

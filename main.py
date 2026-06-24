@@ -23,7 +23,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="RedTeam AI", lifespan=lifespan)
+app = FastAPI(title="Thaghrawy", lifespan=lifespan)
 
 app.include_router(chat.router)
 app.include_router(engagements.router)
