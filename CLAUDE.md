@@ -24,7 +24,13 @@ python main.py               # Starts FastAPI on port 8000
 - `mcp_servers/` → MCP-style tool servers (recon/exploit/report) + `mcp_servers/tools/` wrappers.
   Named `mcp_servers/`, not `mcp/`, to avoid shadowing the installed `mcp` SDK package
   that `recon_server.py`/`exploit_server.py`/`report_server.py` themselves import.
+  `report_server.py` only renders Markdown -> .md/.pdf (`render_to_files()`); it has no
+  memory/engagement dependency.
+- `reporting/builder.py` → Pure functions that turn an `Engagement` + its `Finding`s into
+  the two report Markdown documents (technical / executive) — no I/O, no DB access.
 - `engagements/manager.py` → Engagement lifecycle (JSON + markdown session logs)
+- `benchmarks/` → Scoring harness (ESR/AST/FP-rate) for evaluating engagement findings
+  against known DVWA/Juice Shop vulnerability categories — see `benchmarks/README.md`
 - `api/` → FastAPI routes and WebSocket streaming
 - `frontend/` → Dark hacker UI (HTML/CSS/JS)
 - `guardrails.py` → Safety filtering (dangerous shell patterns, JSON enforcement) — do not bypass
@@ -77,13 +83,35 @@ python main.py               # Starts FastAPI on port 8000
   `searchsploit_lookup`, `arjun_scan`, `enum4linux_scan` — recon / vuln scanning
 - `list_workspace`, `read_file`, `grep_workspace` — recon workspace utilities
 - `sqlmap_scan`, `nikto_scan`, `hydra_bruteforce` — exploitation (dangerous=True)
-- `generate_report` — reporting
+- `generate_report(engagement_id)` — builds both a technical report (full evidence/
+  reproduction steps, for developers) and an executive report (business impact, for
+  management) from the engagement's saved findings via `reporting/builder.py` +
+  `mcp_servers/report_server.py`. Also reachable over HTTP at
+  `POST /api/engagements/{id}/reports` (generate), `GET /api/engagements/{id}/reports`
+  (list), `GET /api/reports/{filename}` (download) — see `api/routes/reports.py`.
 - `shell` — generic shell execution (dangerous=True, logged, gated by `guardrails.py`)
 - `http_request` — generic HTTP requests
 - `parse_tool_output` — filter/truncate raw nmap/sqlmap/nikto/generic output
 
 See `skills.py` for the methodology guidance (which tools map to which phase
 of an engagement) injected into every system prompt via `prompt_builder.py`.
+
+## Engagement Analysis Mode (FR-01)
+Every `Engagement` has an `analysis_mode` field — `"full_analysis"` (default) or
+`"recon_only"`. `api/deps.py`'s `_get_or_create_agent()` reads it and calls
+`core/tools.py`'s `build_filtered_registry(mode, memory, engagement_id)`, which is a
+thin wrapper over `build_default_registry(..., include_exploit_tools=...)`: a
+`recon_only` engagement's agent never has `sqlmap_scan`/`nikto_scan`/`hydra_bruteforce`
+registered, so it physically cannot attempt exploitation regardless of what the model
+decides to do. Set at creation via `POST /api/engagements`'s `analysis_mode` field.
+
+## Finding Risk Scoring
+`Finding` carries both `cvss_score` and `dread_score` (1-10, agent-estimated
+Damage/Reproducibility/Exploitability/Affected users/Discoverability) alongside
+`affected_component`/`business_impact`/`remediation`. The executive report
+(`reporting/builder.py`) sorts by severity first, `dread_score` as a tiebreaker within
+the same severity band, and surfaces the DREAD score per finding for risk
+prioritization.
 
 ## Embedding Model
 Set `EMBEDDING_MODEL_PATH` in `.env` to a local snapshot directory to avoid re-downloading;

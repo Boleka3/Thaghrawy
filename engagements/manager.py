@@ -23,7 +23,14 @@ class EngagementManager:
     def _log_path(self, engagement_id: str) -> str:
         return os.path.join(self.base_dir, f"{engagement_id}.md")
 
-    def create(self, name: str, target: str, scope: str = "", tech_stack: Optional[list[str]] = None) -> Engagement:
+    def create(
+        self,
+        name: str,
+        target: str,
+        scope: str = "",
+        tech_stack: Optional[list[str]] = None,
+        analysis_mode: str = "full_analysis",
+    ) -> Engagement:
         engagement = Engagement(
             id=str(uuid.uuid4()),
             name=name,
@@ -32,6 +39,7 @@ class EngagementManager:
             start_date=datetime.now(timezone.utc).date().isoformat(),
             status="active",
             tech_stack=tech_stack or [],
+            analysis_mode=analysis_mode,
         )
         self._save(engagement)
         self.append_log(

@@ -15,6 +15,11 @@ class Finding(BaseModel):
     engagement_id: str
     date: str
     tags: list[str] = Field(default_factory=list)
+    cvss_score: Optional[float] = None
+    dread_score: Optional[float] = None
+    affected_component: Optional[str] = None
+    business_impact: Optional[str] = None
+    remediation: Optional[str] = None
 
 
 class Technique(BaseModel):
@@ -39,3 +44,4 @@ class Engagement(BaseModel):
     findings_count: int = 0
     tech_stack: list[str] = Field(default_factory=list)
     notes: str = ""
+    analysis_mode: Literal["recon_only", "full_analysis"] = "full_analysis"

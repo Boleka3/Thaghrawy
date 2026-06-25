@@ -16,6 +16,7 @@ class CreateEngagementRequest(BaseModel):
     target: str
     scope: Optional[str] = None
     tech_stack: Optional[list[str]] = None
+    analysis_mode: Optional[str] = None
 
 
 class UpdateEngagementRequest(BaseModel):
@@ -31,7 +32,10 @@ def list_engagements(manager: EngagementManager = Depends(get_engagements)):
 
 @router.post("")
 def create_engagement(body: CreateEngagementRequest, manager: EngagementManager = Depends(get_engagements)):
-    return manager.create(name=body.name, target=body.target, scope=body.scope or "", tech_stack=body.tech_stack)
+    return manager.create(
+        name=body.name, target=body.target, scope=body.scope or "", tech_stack=body.tech_stack,
+        analysis_mode=body.analysis_mode or "full_analysis",
+    )
 
 
 @router.get("/{engagement_id}")

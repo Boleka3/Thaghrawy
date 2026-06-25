@@ -79,13 +79,13 @@ html, body {
   letter-spacing: 1px;
 }
 
-.engagement-list, .findings-list {
+.engagement-list, .findings-list, .reports-list {
   list-style: none;
   margin: 0;
   padding: 0;
 }
 
-.engagement-list li, .findings-list li {
+.engagement-list li, .findings-list li, .reports-list li {
   padding: 6px 8px;
   margin-bottom: 4px;
   border: 1px solid var(--border);
@@ -96,6 +96,10 @@ html, body {
 .engagement-list li:hover, .findings-list li:hover {
   border-color: var(--agent);
 }
+
+.reports-list li { cursor: default; }
+.reports-list a { color: var(--memory); text-decoration: none; }
+.reports-list a:hover { text-decoration: underline; }
 .engagement-list li.selected {
   border-color: var(--agent);
   color: var(--agent);
