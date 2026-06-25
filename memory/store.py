@@ -30,20 +30,25 @@ class MemoryStore:
     # ── findings ──────────────────────────────────────────────
     def add_finding(self, finding: Finding) -> None:
         document = f"{finding.title}\n{finding.description}\n{finding.reproduction_steps}"
-        self.findings.upsert(
-            ids=[finding.id],
-            documents=[document],
-            metadatas=[{
-                "title": finding.title,
-                "severity": finding.severity,
-                "vuln_type": finding.vuln_type,
-                "technique_used": finding.technique_used,
-                "target": finding.target,
-                "engagement_id": finding.engagement_id,
-                "date": finding.date,
-                "tags": ",".join(finding.tags),
-            }],
-        )
+        metadata = {
+            "title": finding.title,
+            "severity": finding.severity,
+            "vuln_type": finding.vuln_type,
+            "description": finding.description,
+            "reproduction_steps": finding.reproduction_steps,
+            "technique_used": finding.technique_used,
+            "target": finding.target,
+            "engagement_id": finding.engagement_id,
+            "date": finding.date,
+            "tags": ",".join(finding.tags),
+        }
+        for optional_field in (
+            "cvss_score", "dread_score", "affected_component", "business_impact", "remediation",
+        ):
+            value = getattr(finding, optional_field)
+            if value is not None:
+                metadata[optional_field] = value
+        self.findings.upsert(ids=[finding.id], documents=[document], metadatas=[metadata])
 
     def search_findings(self, query: str, top_k: int = 3, engagement_id: Optional[str] = None) -> list[dict[str, Any]]:
         where = {"engagement_id": engagement_id} if engagement_id else None
@@ -53,6 +58,19 @@ class MemoryStore:
     def load_engagement_findings(self, engagement_id: str) -> list[dict[str, Any]]:
         results = self.findings.get(where={"engagement_id": engagement_id})
         return _format_get_results(results)
+
+    def load_engagement_findings_as_models(self, engagement_id: str) -> list[Finding]:
+        """Reconstruct full Finding objects (for report generation) from the
+        metadata stored by add_finding - the metadata now mirrors every Finding
+        field, so this is a straight rehydration rather than a guess."""
+        findings = []
+        for item in self.load_engagement_findings(engagement_id):
+            fields = dict(item["metadata"])
+            fields["id"] = item["id"]
+            tags = fields.get("tags") or ""
+            fields["tags"] = tags.split(",") if tags else []
+            findings.append(Finding(**fields))
+        return findings
 
     # ── techniques ────────────────────────────────────────────
     def add_technique(self, technique: Technique) -> None:

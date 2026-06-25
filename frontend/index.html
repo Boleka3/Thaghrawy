@@ -21,6 +21,10 @@
       <div class="new-engagement">
         <input id="new-engagement-name" placeholder="name" />
         <input id="new-engagement-target" placeholder="target" />
+        <select id="new-engagement-mode">
+          <option value="full_analysis">Full Analysis</option>
+          <option value="recon_only">Recon Only</option>
+        </select>
         <button id="new-engagement-btn">[+] NEW</button>
       </div>
       <div class="section-label">ACTIVE</div>
@@ -42,6 +46,10 @@
       <h2>FINDINGS</h2>
       <ul id="findings-list" class="findings-list"></ul>
       <button id="add-finding-btn">[+] Add Finding</button>
+
+      <div class="section-label">REPORTS</div>
+      <ul id="reports-list" class="reports-list"></ul>
+      <button id="generate-reports-btn">[+] Generate Reports</button>
     </section>
   </main>
 

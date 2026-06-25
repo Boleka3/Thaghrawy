@@ -77,8 +77,18 @@ SKILLS = {
         name="Reporting",
         prompt=(
             "Persist every confirmed vulnerability via save_finding as soon as it's "
-            "confirmed - don't batch them up to remember later. When the engagement "
-            "wraps up, consolidate everything into generate_report."
+            "confirmed - don't batch them up to remember later. While the finding is "
+            "fresh in context, also judge its cvss_score, dread_score (1-10, your own "
+            "DREAD-style estimate of Damage/Reproducibility/Exploitability/Affected "
+            "users/Discoverability), affected_component, business_impact (plain-language: "
+            "what exploitation costs the business), and remediation - these populate the "
+            "executive report, and you have the most context for them right after "
+            "confirming the finding. When the "
+            "engagement wraps up, call generate_report with just the engagement_id - "
+            "it builds both a technical report (full evidence/reproduction steps, for "
+            "developers) and an executive report (business impact/risk, for "
+            "management) directly from the saved findings, so there's no need to "
+            "hand-write report content."
         ),
         tools=["save_finding", "save_technique", "generate_report"],
     ),

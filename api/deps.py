@@ -7,6 +7,7 @@ from __future__ import annotations
 from fastapi import Request
 
 from core.agent import PentestAgent
+from core.tools import build_filtered_registry
 from engagements.manager import EngagementManager
 from memory.store import MemoryStore
 
@@ -28,5 +29,9 @@ def _get_or_create_agent(state, engagement_id: str) -> PentestAgent:
     if engagement_id not in agents:
         engagement = state.engagements.get(engagement_id)
         target = engagement.target if engagement else ""
-        agents[engagement_id] = PentestAgent(engagement_id=engagement_id, target=target, memory=state.memory)
+        mode = engagement.analysis_mode if engagement else "full_analysis"
+        registry = build_filtered_registry(mode, state.memory, engagement_id)
+        agents[engagement_id] = PentestAgent(
+            engagement_id=engagement_id, target=target, memory=state.memory, registry=registry,
+        )
     return agents[engagement_id]

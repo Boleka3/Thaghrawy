@@ -126,7 +126,13 @@ def _make_save_finding(memory: MemoryStore):
     def save_finding(finding: dict[str, Any]) -> dict[str, Any]:
         """Persist a new vulnerability finding to long-term memory. `finding`
         must match the Finding schema (title, severity, vuln_type, description,
-        reproduction_steps, technique_used, target, engagement_id, tags)."""
+        reproduction_steps, technique_used, target, engagement_id, tags). Also
+        include, when you can judge them at confirmation time: cvss_score
+        (float), affected_component (the specific service/endpoint/library),
+        business_impact (one line on what exploitation means for the business -
+        e.g. data exposure, downtime, compliance), and remediation (a concrete
+        fix). These feed the executive report, so skip the jargon in
+        business_impact."""
         from memory.schemas import Finding
 
         finding.setdefault("id", str(uuid.uuid4()))
@@ -160,6 +166,42 @@ def _make_load_engagement_context(memory: MemoryStore):
         return {"findings": memory.load_engagement_findings(engagement_id)}
 
     return load_engagement_context
+
+
+def generate_engagement_reports(memory: MemoryStore, engagement_id: str) -> dict[str, Any]:
+    """Build a technical report and an executive report for an engagement
+    directly from its saved findings, and render both to .md/.pdf. Shared by
+    the agent's generate_report tool and the /api/engagements/{id}/reports
+    HTTP route so there's exactly one place this logic lives."""
+    from engagements.manager import EngagementManager
+    from mcp_servers.report_server import render_to_files
+    from reporting.builder import build_executive_report, build_technical_report
+
+    engagement = EngagementManager().get(engagement_id)
+    if engagement is None:
+        return {"error": f"Unknown engagement_id: {engagement_id}"}
+
+    findings = memory.load_engagement_findings_as_models(engagement_id)
+    prefix_suffix = engagement_id[:8]
+    return {
+        "technical": render_to_files(
+            build_technical_report(engagement, findings), f"technical_report_{prefix_suffix}"
+        ),
+        "executive": render_to_files(
+            build_executive_report(engagement, findings), f"executive_report_{prefix_suffix}"
+        ),
+    }
+
+
+def _make_generate_report(memory: MemoryStore):
+    def generate_report(engagement_id: str) -> dict[str, Any]:
+        """Generate both a technical report (full evidence and reproduction
+        steps, for developers) and an executive report (business impact and
+        priority, for management) for this engagement, built directly from
+        its saved findings - no need to write report content by hand."""
+        return generate_engagement_reports(memory, engagement_id)
+
+    return generate_report
 
 
 # ──────────────────────────────────────────────
@@ -231,19 +273,21 @@ _RECON_TOOL_NAMES = (
 _EXPLOIT_TOOL_NAMES = ("sqlmap_scan", "nikto_scan", "hydra_bruteforce")
 
 
-def build_default_registry(memory: MemoryStore, engagement_id: str) -> ToolRegistry:
+def build_default_registry(
+    memory: MemoryStore, engagement_id: str, include_exploit_tools: bool = True
+) -> ToolRegistry:
     registry = ToolRegistry()
 
     from mcp_servers import recon_server
     for name in _RECON_TOOL_NAMES:
         registry.register(name, getattr(recon_server, name))
 
-    from mcp_servers import exploit_server
-    for name in _EXPLOIT_TOOL_NAMES:
-        registry.register(name, getattr(exploit_server, name), dangerous=True)
+    if include_exploit_tools:
+        from mcp_servers import exploit_server
+        for name in _EXPLOIT_TOOL_NAMES:
+            registry.register(name, getattr(exploit_server, name), dangerous=True)
 
-    from mcp_servers import report_server
-    registry.register("generate_report", report_server.generate_report)
+    registry.register("generate_report", _make_generate_report(memory))
 
     registry.register("search_memory", _make_search_memory(memory))
     registry.register("save_finding", _make_save_finding(memory))
@@ -255,3 +299,10 @@ def build_default_registry(memory: MemoryStore, engagement_id: str) -> ToolRegis
     registry.register("parse_tool_output", parse_tool_output)
 
     return registry
+
+
+def build_filtered_registry(mode: str, memory: MemoryStore, engagement_id: str) -> ToolRegistry:
+    """Thin wrapper over build_default_registry() for the FR-01 recon-only vs
+    full-analysis engagement mode - keeps a single registry-construction path
+    rather than maintaining two."""
+    return build_default_registry(memory, engagement_id, include_exploit_tools=mode != "recon_only")
