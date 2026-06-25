@@ -10,6 +10,7 @@ const engagementLabel = document.getElementById("engagement-label");
 const activeList = document.getElementById("active-engagements");
 const pastList = document.getElementById("past-engagements");
 const findingsList = document.getElementById("findings-list");
+const reportsList = document.getElementById("reports-list");
 
 function appendLine(cssClass, tag, text) {
   const line = document.createElement("div");
@@ -62,6 +63,7 @@ async function selectEngagement(eng) {
   });
   connectSocket();
   await loadFindings(eng.id);
+  await loadReports(eng.id);
 }
 
 async function loadFindings(engagementId) {
@@ -77,6 +79,24 @@ async function loadFindings(engagementId) {
     }
   } catch (e) {
     console.error("Failed to load findings", e);
+  }
+}
+
+async function loadReports(engagementId) {
+  reportsList.innerHTML = "";
+  try {
+    const reports = await api(`/api/engagements/${engagementId}/reports`);
+    for (const r of reports) {
+      const li = document.createElement("li");
+      const link = document.createElement("a");
+      link.href = `/api/reports/${r.filename}`;
+      link.target = "_blank";
+      link.textContent = `${r.type.toUpperCase()} (${r.format})`;
+      li.appendChild(link);
+      reportsList.appendChild(li);
+    }
+  } catch (e) {
+    console.error("Failed to load reports", e);
   }
 }
 
@@ -144,8 +164,9 @@ chatInput.addEventListener("keydown", (e) => {
 document.getElementById("new-engagement-btn").addEventListener("click", async () => {
   const name = document.getElementById("new-engagement-name").value.trim();
   const target = document.getElementById("new-engagement-target").value.trim();
+  const analysis_mode = document.getElementById("new-engagement-mode").value;
   if (!name || !target) return;
-  const eng = await api("/api/engagements", { method: "POST", body: JSON.stringify({ name, target }) });
+  const eng = await api("/api/engagements", { method: "POST", body: JSON.stringify({ name, target, analysis_mode }) });
   document.getElementById("new-engagement-name").value = "";
   document.getElementById("new-engagement-target").value = "";
   await loadEngagements();
@@ -179,6 +200,25 @@ document.getElementById("add-finding-btn").addEventListener("click", async () =>
     }),
   });
   await loadFindings(state.engagementId);
+});
+
+document.getElementById("generate-reports-btn").addEventListener("click", async () => {
+  if (!state.engagementId) {
+    alert("Select an engagement first.");
+    return;
+  }
+  const btn = document.getElementById("generate-reports-btn");
+  btn.disabled = true;
+  btn.textContent = "[...] Generating";
+  try {
+    await api(`/api/engagements/${state.engagementId}/reports`, { method: "POST" });
+    await loadReports(state.engagementId);
+  } catch (e) {
+    alert(`Report generation failed: ${e.message}`);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "[+] Generate Reports";
+  }
 });
 
 loadEngagements();
