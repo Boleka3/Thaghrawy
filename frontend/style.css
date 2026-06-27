@@ -180,6 +180,14 @@ button:hover { background: var(--tool); color: var(--bg); }
 .conn-connected { color: var(--agent); }
 .conn-disconnected { color: var(--error); }
 
+.hint-active {
+  color: #000;
+  background: #00ff41;
+  border-radius: 2px;
+  padding: 0 3px;
+  transition: background 0.3s, color 0.3s;
+}
+
 ::-webkit-scrollbar { width: 8px; }
 ::-webkit-scrollbar-track { background: var(--bg); }
 ::-webkit-scrollbar-thumb { background: var(--border); }

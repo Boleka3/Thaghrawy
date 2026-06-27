@@ -7,6 +7,23 @@ from typing import Any, Optional
 
 from mcp_servers.tools._common import run_command, sanitize_input
 
+_WORDLIST_CANDIDATES = [
+    "/usr/share/seclists/Discovery/Web-Content/directory-list-2.3-medium.txt",
+    "/usr/share/wordlists/dirb/common.txt",
+    "/usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt",
+    os.path.expanduser("~/wordlists/common.txt"),
+]
+
+
+def _resolve_wordlist(requested: str) -> tuple[str, str | None]:
+    if os.path.isfile(requested):
+        return requested, None
+    for candidate in _WORDLIST_CANDIDATES:
+        if os.path.isfile(candidate):
+            return candidate, None
+    tried = [requested] + _WORDLIST_CANDIDATES
+    return "", f"No wordlist found. Tried: {', '.join(tried)}"
+
 
 def _parse_ffuf(stdout: str) -> dict[str, Any]:
     results = []
@@ -51,11 +68,12 @@ def ffuf_fuzz(
     if "FUZZ" not in url:
         url = url.rstrip("/") + "/FUZZ"
 
-    if not os.path.isfile(wordlist):
-        return {"status": "error", "error": f"Wordlist not found: {wordlist}"}
+    resolved, err = _resolve_wordlist(wordlist)
+    if err:
+        return {"status": "error", "error": err}
 
     cmd = [
-        "ffuf", "-u", url, "-w", wordlist, "-X", sanitize_input(method) or "GET",
+        "ffuf", "-u", url, "-w", resolved, "-X", sanitize_input(method) or "GET",
         "-mc", sanitize_input(match_codes), "-t", str(threads), "-json", "-s",
     ]
     for header in headers or []:

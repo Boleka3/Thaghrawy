@@ -9,6 +9,23 @@ from mcp_servers.tools._common import run_command, sanitize_input
 
 VALID_MODES = ("dir", "dns", "vhost")
 
+_WORDLIST_CANDIDATES = [
+    "/usr/share/seclists/Discovery/Web-Content/directory-list-2.3-medium.txt",
+    "/usr/share/wordlists/dirb/common.txt",
+    "/usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt",
+    os.path.expanduser("~/wordlists/common.txt"),
+]
+
+
+def _resolve_wordlist(requested: str) -> tuple[str, str | None]:
+    if os.path.isfile(requested):
+        return requested, None
+    for candidate in _WORDLIST_CANDIDATES:
+        if os.path.isfile(candidate):
+            return candidate, None
+    tried = [requested] + _WORDLIST_CANDIDATES
+    return "", f"No wordlist found. Tried: {', '.join(tried)}"
+
 
 def _parse_gobuster(mode: str):
     def parser(stdout: str) -> dict[str, Any]:
@@ -56,12 +73,14 @@ def gobuster_scan(
     target = sanitize_input(target)
     if not target:
         return {"status": "error", "error": "Target required"}
-    if not os.path.isfile(wordlist):
-        return {"status": "error", "error": f"Wordlist not found: {wordlist}"}
+
+    resolved, err = _resolve_wordlist(wordlist)
+    if err:
+        return {"status": "error", "error": err}
 
     cmd = ["gobuster", mode]
     cmd += ["-u", target] if mode in ("dir", "vhost") else ["-d", target]
-    cmd += ["-w", wordlist, "-t", str(threads), "-q", "--no-color"]
+    cmd += ["-w", resolved, "-t", str(threads), "-q", "--no-color"]
 
     if mode == "dir":
         cmd += ["-s", sanitize_input(status_codes)]
