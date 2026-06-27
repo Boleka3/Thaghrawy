@@ -23,6 +23,22 @@ logger = logging.getLogger("mcp.tools")
 WORKSPACE_DIR = config.WORKSPACE_DIR
 os.makedirs(WORKSPACE_DIR, exist_ok=True)
 
+# Security tool binaries (Go/system) must come before the venv on PATH so
+# that wrappers like the Python httpx CLI don't shadow the projectdiscovery
+# httpx binary. We prepend known go/system bin dirs here.
+_TOOL_PATH_PREFIXES = [
+    os.path.expanduser("~/go/bin"),
+    "/usr/local/bin",
+]
+_env_path = os.environ.get("PATH", "")
+_venv_bin = os.path.dirname(sys.executable)  # e.g. .venv/bin
+# Build PATH: tool prefixes first, then everything except the venv bin
+_non_venv = [p for p in _env_path.split(os.pathsep) if p != _venv_bin]
+SUBPROCESS_ENV = {
+    **os.environ,
+    "PATH": os.pathsep.join(_TOOL_PATH_PREFIXES + [_venv_bin] + _non_venv),
+}
+
 
 def sanitize_input(value: Optional[str]) -> str:
     """Strip shell metacharacters. Commands are run via argv lists (no
@@ -62,7 +78,8 @@ def run_command(
     try:
         logger.info(f"Executing: {' '.join(cmd)} (timeout={timeout}s)")
         result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=timeout
+            cmd, capture_output=True, text=True, timeout=timeout,
+            env=SUBPROCESS_ENV,
         )
 
         raw_output = result.stdout

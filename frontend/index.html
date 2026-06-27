@@ -6,7 +6,7 @@
 <title>Thaghrawy</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/style.css" />
+<link rel="stylesheet" href="/static/style.css?v=6" />
 </head>
 <body>
 <div class="app">
@@ -54,14 +54,15 @@
   </main>
 
   <footer class="statusbar">
-    <span>[F1] New Engagement</span>
-    <span>[F2] Save Finding</span>
-    <span>[F3] Search Memory</span>
-    <span>[F9] Settings</span>
-    <span id="conn-status" class="conn-status conn-disconnected">DISCONNECTED</span>
+    <span id="hint-n">[Alt+N] New Engagement</span>
+    <span id="hint-f">[Alt+A] Add Finding</span>
+    <span id="hint-m">[Alt+G] Search Memory</span>
+<span id="hint-s">[Alt+P] Settings</span>
+    <span id="llm-status" class="conn-status">LLM: checking...</span>
+    <span id="conn-status" class="conn-status conn-disconnected">No engagement</span>
   </footer>
 </div>
 
-<script src="/static/app.js"></script>
+<script src="/static/app.js?v=6"></script>
 </body>
 </html>

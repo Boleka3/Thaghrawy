@@ -30,6 +30,8 @@ from mcp_servers.tools.searchsploit import searchsploit_lookup as _searchsploit_
 from mcp_servers.tools.arjun import arjun_scan as _arjun_scan
 from mcp_servers.tools.masscan import masscan_scan as _masscan_scan
 from mcp_servers.tools.enum4linux import enum4linux_scan as _enum4linux_scan
+from mcp_servers.tools.upload_test import upload_test as _upload_test
+from mcp_servers.tools.ssrf import ssrf_test as _ssrf_test
 
 mcp = FastMCP("recon")
 
@@ -359,6 +361,18 @@ async def grep_workspace(pattern: str, filename: str = "") -> str:
         "truncated": total_matches > 50,
         "matches": capped,
     }, indent=2)
+
+
+@mcp.tool()
+def upload_test(url: str, field: str = "file") -> dict:
+    """Test a file upload endpoint for dangerous file type acceptance (Delivery phase)."""
+    return _upload_test(url, field)
+
+
+@mcp.tool()
+def ssrf_test(url: str, param: str, method: str = "GET") -> dict:
+    """Test a URL parameter for Server-Side Request Forgery (C2/Delivery phase)."""
+    return _ssrf_test(url, param, method)
 
 
 if __name__ == "__main__":

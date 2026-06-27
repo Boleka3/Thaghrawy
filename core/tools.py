@@ -269,8 +269,14 @@ _RECON_TOOL_NAMES = (
     "naabu_scan", "dnsx_scan", "nmap_scan", "wpscan_scan", "testssl_scan", "wafw00f_scan",
     "searchsploit_lookup", "arjun_scan", "masscan_scan", "enum4linux_scan",
     "list_workspace", "read_file", "grep_workspace",
+    # Kill chain — Delivery / C2
+    "upload_test", "ssrf_test",
 )
-_EXPLOIT_TOOL_NAMES = ("sqlmap_scan", "nikto_scan", "hydra_bruteforce")
+_EXPLOIT_TOOL_NAMES = (
+    "sqlmap_scan", "nikto_scan", "hydra_bruteforce",
+    # Kill chain — Post-Exploitation
+    "linux_privesc_check", "credential_search",
+)
 
 
 def build_default_registry(
