@@ -45,6 +45,7 @@ async function loadEngagements() {
   const engagements = await api("/api/engagements");
   activeList.innerHTML = "";
   pastList.innerHTML = "";
+  const active = engagements.filter(e => e.status === "active");
   for (const eng of engagements) {
     const li = document.createElement("li");
     li.textContent = `${eng.name} (${eng.target})`;
@@ -52,6 +53,9 @@ async function loadEngagements() {
     if (eng.id === state.engagementId) li.classList.add("selected");
     li.addEventListener("click", () => selectEngagement(eng));
     (eng.status === "active" ? activeList : pastList).appendChild(li);
+  }
+  if (!state.engagementId && active.length > 0) {
+    await selectEngagement(active[0]);
   }
 }
 
@@ -107,12 +111,16 @@ function connectSocket() {
   state.socket = socket;
 
   socket.onopen = () => {
-    connStatus.textContent = "CONNECTED";
+    connStatus.textContent = "Chat: CONNECTED";
+    connStatus.classList.remove("conn-disconnected");
+    connStatus.classList.add("conn-connected");
     connStatus.classList.remove("conn-disconnected");
     connStatus.classList.add("conn-connected");
   };
   socket.onclose = () => {
-    connStatus.textContent = "DISCONNECTED";
+    connStatus.textContent = "Chat: DISCONNECTED";
+    connStatus.classList.remove("conn-connected");
+    connStatus.classList.add("conn-disconnected");
     connStatus.classList.remove("conn-connected");
     connStatus.classList.add("conn-disconnected");
   };
@@ -221,4 +229,57 @@ document.getElementById("generate-reports-btn").addEventListener("click", async 
   }
 });
 
+function flashHint(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.classList.add("hint-active");
+  setTimeout(() => el.classList.remove("hint-active"), 300);
+}
+
+document.addEventListener("keydown", (e) => {
+  if (!e.altKey || e.ctrlKey || e.metaKey) return;
+  switch (e.code) {
+    case "KeyN":
+      e.preventDefault();
+      flashHint("hint-n");
+      document.getElementById("new-engagement-name").focus();
+      break;
+    case "KeyA":
+      e.preventDefault();
+      flashHint("hint-f");
+      document.getElementById("add-finding-btn").click();
+      break;
+    case "KeyG":
+      e.preventDefault();
+      flashHint("hint-m");
+      chatInput.focus();
+      chatInput.value = "Search memory for: ";
+      break;
+    case "KeyP":
+      e.preventDefault();
+      flashHint("hint-s");
+      alert("Settings panel coming soon.");
+      break;
+  }
+});
+
+async function checkLlmStatus() {
+  const el = document.getElementById("llm-status");
+  if (!el) return;
+  try {
+    const s = await api("/api/lm-studio/status");
+    if (s.lm_studio) {
+      el.textContent = s.loaded ? `LLM: ${s.model} ✓` : `LLM: ${s.model} (not loaded)`;
+      el.className = `conn-status ${s.loaded ? "conn-connected" : "conn-disconnected"}`;
+    } else {
+      el.textContent = `LLM: ${s.provider}`;
+      el.className = "conn-status conn-connected";
+    }
+  } catch {
+    el.textContent = "LLM: unreachable";
+    el.className = "conn-status conn-disconnected";
+  }
+}
+
+checkLlmStatus();
 loadEngagements();

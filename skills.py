@@ -73,6 +73,30 @@ SKILLS = {
         ),
         tools=["nmap_scan", "masscan_scan", "enum4linux_scan"],
     ),
+    "delivery": Skill(
+        name="Delivery",
+        prompt=(
+            "Test how attacker-controlled input reaches the target system. "
+            "Use upload_test to probe file upload endpoints for dangerous file type acceptance "
+            "(.php, .jsp, .aspx, double-extension bypasses). "
+            "Use ssrf_test to check whether server-side URL parameters can be redirected to "
+            "internal services (http/file/gopher/dict protocols)."
+        ),
+        tools=["upload_test", "ssrf_test", "ffuf_fuzz", "arjun_scan"],
+    ),
+    "post_exploit": Skill(
+        name="Post-Exploitation (Installation / C2 / Actions on Objectives)",
+        prompt=(
+            "After obtaining a foothold: enumerate privilege escalation paths with "
+            "linux_privesc_check (SUID/SGID binaries, sudo misconfigurations, cron jobs, "
+            "writable paths, file capabilities). "
+            "Search all gathered recon output in the workspace for leaked credentials, "
+            "API keys, tokens, and password hashes with credential_search. "
+            "SSRF vulnerabilities can serve as a C2 channel to reach internal services — "
+            "pivot with ssrf_test after confirming a foothold."
+        ),
+        tools=["linux_privesc_check", "credential_search", "ssrf_test", "shell"],
+    ),
     "report": Skill(
         name="Reporting",
         prompt=(
