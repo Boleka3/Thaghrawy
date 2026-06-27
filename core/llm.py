@@ -178,6 +178,7 @@ class OpenAIProvider(BaseLLMProvider):
         openai_tools = self._tools(tools)
         if openai_tools:
             kwargs["tools"] = openai_tools
+            kwargs["tool_choice"] = "auto"
 
         pending: dict[int, dict[str, Any]] = {}
         response = await self.client.chat.completions.create(**kwargs)

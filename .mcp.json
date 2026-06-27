@@ -1,0 +1,28 @@
+{
+  "mcpServers": {
+    "thaghrawy-recon": {
+      "type": "stdio",
+      "command": "/home/t4qi/graduation_project/Thaghrawy/.venv/bin/python",
+      "args": ["-m", "mcp_servers.recon_server"],
+      "cwd": "/home/t4qi/graduation_project/Thaghrawy",
+      "env": {
+        "WORKSPACE_DIR": "/home/t4qi/graduation_project/Thaghrawy/engagements/sessions/_workspace",
+        "REPORTS_DIR": "/home/t4qi/graduation_project/Thaghrawy/reports",
+        "ENGAGEMENTS_DIR": "/home/t4qi/graduation_project/Thaghrawy/engagements/sessions",
+        "RECON_TIMEOUT": "180",
+        "MAX_SHELL_TIMEOUT": "30"
+      }
+    },
+    "thaghrawy-exploit": {
+      "type": "stdio",
+      "command": "/home/t4qi/graduation_project/Thaghrawy/.venv/bin/python",
+      "args": ["-m", "mcp_servers.exploit_server"],
+      "cwd": "/home/t4qi/graduation_project/Thaghrawy",
+      "env": {
+        "WORKSPACE_DIR": "/home/t4qi/graduation_project/Thaghrawy/engagements/sessions/_workspace",
+        "ENGAGEMENTS_DIR": "/home/t4qi/graduation_project/Thaghrawy/engagements/sessions",
+        "MAX_SHELL_TIMEOUT": "30"
+      }
+    }
+  }
+}
