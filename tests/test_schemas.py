@@ -53,6 +53,16 @@ def test_finding_optional_fields_can_be_set(make_finding):
     assert finding.remediation == "Use parameterized queries"
 
 
+def test_finding_rejects_out_of_range_scores(make_finding):
+    import pytest
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        make_finding(cvss_score=50)
+    with pytest.raises(ValidationError):
+        make_finding(dread_score=-3)
+
+
 def test_technique_requires_mandatory_fields():
     technique = Technique(
         id="t-1",
