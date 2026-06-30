@@ -40,6 +40,16 @@ def test_load_engagement_findings_as_models_reconstructs_full_finding(tmp_memory
     assert reconstructed.tags == ["sqli", "auth"]
 
 
+def test_tags_with_commas_survive_round_trip(tmp_memory, make_finding):
+    # Regression: tags were ",".join'd, so a tag containing a comma corrupted
+    # the round-trip. They are JSON-encoded now.
+    finding = make_finding(id="f-1", engagement_id="eng-1", tags=["a,b", "owasp: a03,injection"])
+    tmp_memory.add_finding(finding)
+
+    [reconstructed] = tmp_memory.load_engagement_findings_as_models("eng-1")
+    assert reconstructed.tags == ["a,b", "owasp: a03,injection"]
+
+
 def test_load_engagement_findings_as_models_handles_no_optional_fields(tmp_memory, make_finding):
     finding = make_finding(id="f-1", engagement_id="eng-1")
     tmp_memory.add_finding(finding)

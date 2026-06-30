@@ -268,6 +268,16 @@ async def dnsx_scan(target: str = "", list_file: str = "", wordlist: str = "", r
 # ══════════════════════════════════════════════
 
 
+def _within_workspace(real_path: str, real_workspace: str) -> bool:
+    """True if real_path is inside real_workspace. Uses os.path.commonpath
+    rather than str.startswith, so a sibling like '<workspace>_evil' can't slip
+    past the prefix check."""
+    try:
+        return os.path.commonpath([real_path, real_workspace]) == real_workspace
+    except ValueError:
+        return False  # e.g. different drives, or mixed absolute/relative
+
+
 @mcp.tool()
 async def list_workspace() -> str:
     """List all files saved to the recon workspace by previous tool runs."""
@@ -298,7 +308,7 @@ async def read_file(filename: str, max_lines: int = 100) -> str:
     filepath = os.path.join(WORKSPACE_DIR, filename)
     real_path = os.path.realpath(filepath)
     real_workspace = os.path.realpath(WORKSPACE_DIR)
-    if not real_path.startswith(real_workspace):
+    if not _within_workspace(real_path, real_workspace):
         return json.dumps({"status": "error", "error": "Access denied: path traversal detected"})
     if not os.path.isfile(filepath):
         return json.dumps({"status": "error", "error": f"File not found: {filename}"})
@@ -330,7 +340,7 @@ async def grep_workspace(pattern: str, filename: str = "") -> str:
         filename = sanitize_input(filename)
         filepath = os.path.join(WORKSPACE_DIR, filename)
         real_path = os.path.realpath(filepath)
-        if not real_path.startswith(real_workspace):
+        if not _within_workspace(real_path, real_workspace):
             return json.dumps({"status": "error", "error": "Access denied: path traversal detected"})
         if not os.path.isfile(filepath):
             return json.dumps({"status": "error", "error": f"File not found: {filename}"})

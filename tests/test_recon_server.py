@@ -295,3 +295,13 @@ async def test_httpx_scan_wrapper_delegates(fake_subprocess):
     parsed = json.loads(raw)
     assert parsed["status"] == "success"
     assert parsed["alive_count"] == 1
+
+
+# ── workspace path-traversal guard ──
+
+
+def test_within_workspace_rejects_sibling_prefix(tmp_path):
+    # str.startswith would wrongly accept '<ws>_evil'; commonpath must not.
+    ws = str(tmp_path / "workspace")
+    assert recon_server._within_workspace(ws + "/sub/file.txt", ws) is True
+    assert recon_server._within_workspace(ws + "_evil/file.txt", ws) is False
