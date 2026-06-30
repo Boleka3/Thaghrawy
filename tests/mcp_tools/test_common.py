@@ -122,6 +122,24 @@ def test_run_command_generic_exception(monkeypatch):
     assert result["error"] == "unexpected failure"
 
 
+def test_run_command_logs_executed_command(monkeypatch):
+    import guardrails
+
+    logged = {}
+
+    def fake_log(command, engagement_id, allowed, reason=""):
+        logged["command"] = command
+        logged["allowed"] = allowed
+
+    monkeypatch.setattr(guardrails.Guardrails, "log_shell_command", staticmethod(fake_log))
+    monkeypatch.setattr(_common.subprocess, "run", lambda *a, **k: _FakeCompletedProcess(stdout="ok"))
+
+    run_command(["nmap", "-sV", "target"], "nmap", "target")
+
+    assert logged["command"] == "nmap -sV target"
+    assert logged["allowed"] is True
+
+
 def test_run_command_uses_default_timeout_from_config(monkeypatch):
     captured = {}
 
