@@ -3,6 +3,7 @@ directly. Two collections: `findings` and `techniques`, both embedded with
 the local sentence-transformers model (memory/embeddings.py)."""
 from __future__ import annotations
 
+import json
 from typing import Any, Optional
 
 import chromadb
@@ -11,6 +12,38 @@ from chromadb.config import Settings
 import config
 from memory.embeddings import LocalEmbeddingFunction
 from memory.schemas import Finding, Technique
+
+
+def _encode_list(values: list[str]) -> str:
+    """JSON-encode a list for Chroma metadata (which only stores scalars), so a
+    value containing a comma can't corrupt the round-trip the way ",".join did."""
+    return json.dumps(values)
+
+
+def _decode_list(raw: Any) -> list[str]:
+    """Inverse of _encode_list, tolerant of the legacy comma-joined format."""
+    if not raw:
+        return []
+    if isinstance(raw, list):
+        return raw
+    try:
+        decoded = json.loads(raw)
+        return decoded if isinstance(decoded, list) else [str(decoded)]
+    except (ValueError, TypeError):
+        return [part for part in str(raw).split(",") if part]
+
+
+def _finding_to_metadata(finding: Finding) -> dict[str, Any]:
+    """Derive Chroma metadata from the full Finding via model_dump, so adding a
+    schema field can't silently break the stored<->reconstructed round-trip.
+    Lists are JSON-encoded; None-valued optionals are omitted (Chroma rejects
+    None); `id` is the Chroma document id, not metadata."""
+    metadata: dict[str, Any] = {}
+    for key, value in finding.model_dump().items():
+        if key == "id" or value is None:
+            continue
+        metadata[key] = _encode_list(value) if isinstance(value, list) else value
+    return metadata
 
 
 class MemoryStore:
@@ -30,25 +63,11 @@ class MemoryStore:
     # ── findings ──────────────────────────────────────────────
     def add_finding(self, finding: Finding) -> None:
         document = f"{finding.title}\n{finding.description}\n{finding.reproduction_steps}"
-        metadata = {
-            "title": finding.title,
-            "severity": finding.severity,
-            "vuln_type": finding.vuln_type,
-            "description": finding.description,
-            "reproduction_steps": finding.reproduction_steps,
-            "technique_used": finding.technique_used,
-            "target": finding.target,
-            "engagement_id": finding.engagement_id,
-            "date": finding.date,
-            "tags": ",".join(finding.tags),
-        }
-        for optional_field in (
-            "cvss_score", "dread_score", "affected_component", "business_impact", "remediation",
-        ):
-            value = getattr(finding, optional_field)
-            if value is not None:
-                metadata[optional_field] = value
-        self.findings.upsert(ids=[finding.id], documents=[document], metadatas=[metadata])
+        self.findings.upsert(
+            ids=[finding.id],
+            documents=[document],
+            metadatas=[_finding_to_metadata(finding)],
+        )
 
     def search_findings(self, query: str, top_k: int = 3, engagement_id: Optional[str] = None) -> list[dict[str, Any]]:
         where = {"engagement_id": engagement_id} if engagement_id else None
@@ -67,9 +86,13 @@ class MemoryStore:
         for item in self.load_engagement_findings(engagement_id):
             fields = dict(item["metadata"])
             fields["id"] = item["id"]
-            tags = fields.get("tags") or ""
-            fields["tags"] = tags.split(",") if tags else []
-            findings.append(Finding(**fields))
+            fields["tags"] = _decode_list(fields.get("tags"))
+            try:
+                findings.append(Finding(**fields))
+            except ValueError as exc:
+                raise ValueError(
+                    f"Corrupt finding {item['id']} in engagement {engagement_id}: {exc}"
+                ) from exc
         return findings
 
     # ── techniques ────────────────────────────────────────────
