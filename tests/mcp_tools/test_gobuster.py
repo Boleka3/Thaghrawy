@@ -24,7 +24,7 @@ def test_gobuster_scan_requires_target(wordlist):
 def test_gobuster_scan_missing_wordlist_returns_error():
     result = gobuster_scan(mode="dir", target="example.com", wordlist="/no/such/file.txt")
     assert result["status"] == "error"
-    assert "Wordlist not found" in result["error"]
+    assert "No wordlist found" in result["error"]
 
 
 def test_gobuster_scan_dir_mode_uses_dash_u_and_status_codes(fake_subprocess, wordlist):
