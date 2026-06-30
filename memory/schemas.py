@@ -45,3 +45,13 @@ class Engagement(BaseModel):
     tech_stack: list[str] = Field(default_factory=list)
     notes: str = ""
     analysis_mode: Literal["recon_only", "full_analysis"] = "full_analysis"
+    # Agent-effort tracking for the "Average Steps per Task" (AST) metric:
+    # total_steps is the cumulative count of tool executions across all turns;
+    # turn_count is the number of user turns (tasks) driven through the agent.
+    total_steps: int = 0
+    turn_count: int = 0
+
+    @property
+    def average_steps_per_task(self) -> float:
+        """Mean tool-execution steps per task (lower = fewer rabbit holes)."""
+        return self.total_steps / self.turn_count if self.turn_count else 0.0

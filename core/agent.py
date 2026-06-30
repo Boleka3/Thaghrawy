@@ -4,13 +4,16 @@ for direct relay over the chat WebSocket - see api/websocket.py.
 """
 from __future__ import annotations
 
-from typing import Any, AsyncIterator, Optional
+from typing import TYPE_CHECKING, Any, AsyncIterator, Optional
 
 from core.context import ContextManager
 from core.llm import BaseLLMProvider, get_provider
 from core.tools import ToolRegistry, build_default_registry
 from memory.store import MemoryStore
 from prompt_builder import build_system_prompt
+
+if TYPE_CHECKING:
+    from engagements.manager import EngagementManager
 
 MAX_TOOL_ITERATIONS = 8
 
@@ -28,6 +31,7 @@ class PentestAgent:
         memory: Optional[MemoryStore] = None,
         registry: Optional[ToolRegistry] = None,
         provider: Optional[BaseLLMProvider] = None,
+        engagement_manager: Optional["EngagementManager"] = None,
     ):
         self.engagement_id = engagement_id
         self.target = target
@@ -35,7 +39,20 @@ class PentestAgent:
         self.registry = registry or build_default_registry(self.memory, engagement_id)
         self.provider = provider or get_provider()
         self.context = ContextManager()
+        self.engagement_manager = engagement_manager
         self.messages: list[dict[str, Any]] = []
+
+    def _record_steps(self, steps: int) -> None:
+        """Persist this turn's step count for the AST metric. Best-effort: a
+        persistence failure (e.g. unknown engagement) never breaks the turn."""
+        try:
+            manager = self.engagement_manager
+            if manager is None:
+                from engagements.manager import EngagementManager
+                manager = EngagementManager()
+            manager.record_steps(self.engagement_id, steps)
+        except Exception:
+            pass
 
     async def chat(self, user_input: str) -> AsyncIterator[dict[str, Any]]:
         """Drive one user turn through the ReAct loop, yielding streaming
@@ -54,6 +71,7 @@ class PentestAgent:
         self.messages.append({"role": "user", "content": user_input})
         self.messages = self.context.trim(self.messages)
 
+        step_count = 0
         for _ in range(MAX_TOOL_ITERATIONS):
             assistant_text = ""
             pending_tool_calls: list[dict[str, Any]] = []
@@ -87,6 +105,8 @@ class PentestAgent:
 
             for call in pending_tool_calls:
                 result = await self.registry.execute(call["name"], call["arguments"])
+                step_count += 1
+                yield {"type": "step", "count": step_count, "tool": call["name"]}
                 yield {"type": "tool_result", "tool": call["name"], "output": result}
 
                 is_save = call["name"] in ("save_finding", "save_technique")
@@ -103,4 +123,5 @@ class PentestAgent:
             limit_msg = f"Reached the {MAX_TOOL_ITERATIONS}-iteration tool-call limit for this turn."
             yield {"type": "error", "message": limit_msg}
 
-        yield {"type": "done"}
+        self._record_steps(step_count)
+        yield {"type": "done", "steps": step_count}

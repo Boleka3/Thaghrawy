@@ -74,6 +74,21 @@ def test_increment_findings_count_unknown_id_returns_none(tmp_engagements):
     assert tmp_engagements.increment_findings_count("does-not-exist") is None
 
 
+def test_record_steps_accumulates_total_and_turns(tmp_engagements):
+    created = tmp_engagements.create(name="X", target="https://x.com")
+    updated = tmp_engagements.record_steps(created.id, 3)
+    assert updated.total_steps == 3
+    assert updated.turn_count == 1
+    updated = tmp_engagements.record_steps(created.id, 5)
+    assert updated.total_steps == 8
+    assert updated.turn_count == 2
+    assert updated.average_steps_per_task == 4.0
+
+
+def test_record_steps_unknown_id_returns_none(tmp_engagements):
+    assert tmp_engagements.record_steps("does-not-exist", 3) is None
+
+
 def test_append_log_and_read_log(tmp_engagements):
     created = tmp_engagements.create(name="X", target="https://x.com")
     tmp_engagements.append_log(created.id, "Extra note")

@@ -85,6 +85,19 @@ class EngagementManager:
             return None
         return self.update(engagement_id, findings_count=engagement.findings_count + 1)
 
+    def record_steps(self, engagement_id: str, steps: int) -> Optional[Engagement]:
+        """Record one completed task (turn): add `steps` tool-executions to the
+        running total and increment the turn count. Feeds the Average Steps per
+        Task (AST) metric. No-op if the engagement doesn't exist."""
+        engagement = self.get(engagement_id)
+        if engagement is None:
+            return None
+        return self.update(
+            engagement_id,
+            total_steps=engagement.total_steps + steps,
+            turn_count=engagement.turn_count + 1,
+        )
+
     def append_log(self, engagement_id: str, text: str) -> None:
         with open(self._log_path(engagement_id), "a") as f:
             f.write(text + "\n")
