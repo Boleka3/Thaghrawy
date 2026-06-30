@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from api.deps import get_engagements, get_memory
+from core.tools import persist_finding
 from engagements.manager import EngagementManager
 from memory.schemas import Finding
 from memory.store import MemoryStore
@@ -25,8 +26,9 @@ def save_finding(
     memory: MemoryStore = Depends(get_memory),
     engagements: EngagementManager = Depends(get_engagements),
 ):
-    memory.add_finding(finding)
-    engagements.increment_findings_count(finding.engagement_id)
+    # Shared single write path with the agent's save_finding tool, so the
+    # engagement findings_count stays consistent across both entry points.
+    persist_finding(memory, finding, engagements)
     return {"status": "saved", "id": finding.id}
 
 

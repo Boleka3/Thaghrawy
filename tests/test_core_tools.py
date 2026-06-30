@@ -135,6 +135,28 @@ def test_schema_from_function_skips_self_args_kwargs():
 # ── memory-backed tool factories ──
 
 
+def test_persist_finding_increments_engagement_count(tmp_memory, tmp_engagements, make_finding):
+    from core.tools import persist_finding
+
+    engagement = tmp_engagements.create(name="E", target="https://e.com")
+    persist_finding(tmp_memory, make_finding(engagement_id=engagement.id), tmp_engagements)
+    persist_finding(tmp_memory, make_finding(id="f2", engagement_id=engagement.id), tmp_engagements)
+
+    assert tmp_engagements.get(engagement.id).findings_count == 2
+    assert len(tmp_memory.load_engagement_findings(engagement.id)) == 2
+
+
+def test_make_save_finding_increments_count(tmp_memory, tmp_engagements):
+    engagement = tmp_engagements.create(name="E", target="https://e.com")
+    save_finding = _make_save_finding(tmp_memory, tmp_engagements)
+    save_finding({
+        "title": "X", "severity": "low", "vuln_type": "Misc", "description": "d",
+        "reproduction_steps": "r", "technique_used": "t", "target": "x",
+        "engagement_id": engagement.id,
+    })
+    assert tmp_engagements.get(engagement.id).findings_count == 1
+
+
 def test_make_save_finding_persists_and_returns_id(tmp_memory):
     save_finding = _make_save_finding(tmp_memory)
     result = save_finding({

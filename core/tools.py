@@ -5,15 +5,20 @@ only talks to a ToolRegistry.
 """
 from __future__ import annotations
 
+import asyncio
 import inspect
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Callable, Optional, get_type_hints
+from typing import TYPE_CHECKING, Any, Callable, Optional, get_type_hints
 
 import config
 from core.llm import ToolSchema
 from memory.store import MemoryStore
+
+if TYPE_CHECKING:
+    from engagements.manager import EngagementManager
+    from memory.schemas import Finding
 
 _TYPE_MAP = {str: "string", int: "integer", float: "number", bool: "boolean", list: "array", dict: "object"}
 
@@ -97,7 +102,13 @@ class ToolRegistry:
         if tool is None:
             return {"error": f"Unknown tool: {name}"}
         try:
-            result = tool.handler(**arguments)
+            if inspect.iscoroutinefunction(tool.handler):
+                result = await tool.handler(**arguments)
+            else:
+                # Most handlers are blocking (subprocess, httpx, PDF render).
+                # Run them off the event loop so one slow tool can't stall the
+                # chat WebSocket / token streaming for every connected client.
+                result = await asyncio.to_thread(tool.handler, **arguments)
             if inspect.isawaitable(result):
                 result = await result
             return result
@@ -122,7 +133,22 @@ def _make_search_memory(memory: MemoryStore):
     return search_memory
 
 
-def _make_save_finding(memory: MemoryStore):
+def persist_finding(
+    memory: MemoryStore,
+    finding: "Finding",
+    manager: Optional["EngagementManager"] = None,
+) -> None:
+    """Single write path for a confirmed finding: store it in memory AND bump
+    the engagement's findings_count. Both the agent's save_finding tool and the
+    POST /api/findings route call this so the count can't diverge between them.
+    """
+    from engagements.manager import EngagementManager
+
+    memory.add_finding(finding)
+    (manager or EngagementManager()).increment_findings_count(finding.engagement_id)
+
+
+def _make_save_finding(memory: MemoryStore, manager: Optional["EngagementManager"] = None):
     def save_finding(finding: dict[str, Any]) -> dict[str, Any]:
         """Persist a new vulnerability finding to long-term memory. `finding`
         must match the Finding schema (title, severity, vuln_type, description,
@@ -138,7 +164,7 @@ def _make_save_finding(memory: MemoryStore):
         finding.setdefault("id", str(uuid.uuid4()))
         finding.setdefault("date", datetime.now(timezone.utc).date().isoformat())
         record = Finding(**finding)
-        memory.add_finding(record)
+        persist_finding(memory, record, manager)
         return {"status": "saved", "id": record.id}
 
     return save_finding
@@ -282,7 +308,10 @@ _EXPLOIT_TOOL_NAMES = (
 def build_default_registry(
     memory: MemoryStore, engagement_id: str, include_exploit_tools: bool = True
 ) -> ToolRegistry:
+    from engagements.manager import EngagementManager
+
     registry = ToolRegistry()
+    manager = EngagementManager()
 
     from mcp_servers import recon_server
     for name in _RECON_TOOL_NAMES:
@@ -296,7 +325,7 @@ def build_default_registry(
     registry.register("generate_report", _make_generate_report(memory))
 
     registry.register("search_memory", _make_search_memory(memory))
-    registry.register("save_finding", _make_save_finding(memory))
+    registry.register("save_finding", _make_save_finding(memory, manager))
     registry.register("save_technique", _make_save_technique(memory))
     registry.register("load_engagement_context", _make_load_engagement_context(memory))
 

@@ -15,8 +15,10 @@ class Finding(BaseModel):
     engagement_id: str
     date: str
     tags: list[str] = Field(default_factory=list)
-    cvss_score: Optional[float] = None
-    dread_score: Optional[float] = None
+    # CVSS base scores run 0.0-10.0; DREAD is estimated 1-10. Both are bounded
+    # so a malformed agent estimate (e.g. 50 or -3) is rejected at construction.
+    cvss_score: Optional[float] = Field(default=None, ge=0.0, le=10.0)
+    dread_score: Optional[float] = Field(default=None, ge=0.0, le=10.0)
     affected_component: Optional[str] = None
     business_impact: Optional[str] = None
     remediation: Optional[str] = None
