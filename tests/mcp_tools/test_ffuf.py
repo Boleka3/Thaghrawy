@@ -23,7 +23,7 @@ def test_ffuf_fuzz_requires_url():
 def test_ffuf_fuzz_missing_wordlist_returns_error():
     result = ffuf_fuzz(url="https://example.com/FUZZ", wordlist="/no/such/wordlist.txt")
     assert result["status"] == "error"
-    assert "Wordlist not found" in result["error"]
+    assert "No wordlist found" in result["error"]
 
 
 def test_ffuf_fuzz_appends_fuzz_keyword_when_missing(fake_subprocess, wordlist):

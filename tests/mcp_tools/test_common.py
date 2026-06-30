@@ -125,7 +125,7 @@ def test_run_command_generic_exception(monkeypatch):
 def test_run_command_uses_default_timeout_from_config(monkeypatch):
     captured = {}
 
-    def fake_run(cmd, capture_output, text, timeout):
+    def fake_run(cmd, capture_output, text, timeout, env):
         captured["timeout"] = timeout
         return _FakeCompletedProcess(stdout="ok", returncode=0)
 
