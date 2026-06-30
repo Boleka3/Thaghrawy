@@ -29,8 +29,13 @@ python main.py               # Starts FastAPI on port 8000
 - `reporting/builder.py` → Pure functions that turn an `Engagement` + its `Finding`s into
   the two report Markdown documents (technical / executive) — no I/O, no DB access.
 - `engagements/manager.py` → Engagement lifecycle (JSON + markdown session logs)
-- `benchmarks/` → Scoring harness (ESR/AST/FP-rate) for evaluating engagement findings
-  against known DVWA/Juice Shop vulnerability categories — see `benchmarks/README.md`
+- `benchmarks/` → Scoring harness for the four `Thaghrawy_Project.pdf` metrics —
+  ESR (Exploit Success Rate, ≥0.70), AST (Average Steps per Task, from the agent's
+  per-turn step counters), FP-rate (≤0.15), and Detection Rate (distinct OWASP
+  Top-10 classes, 8/10) — evaluating engagement findings against known DVWA/Juice
+  Shop categories. `benchmarks/scorer.py` is pure (returns a `BenchmarkResult`);
+  `benchmarks/runner.py` is the I/O driver (`python -m benchmarks.runner <id>
+  <target>`). See `benchmarks/README.md`
 - `api/` → FastAPI routes and WebSocket streaming
 - `frontend/` → Dark hacker UI (HTML/CSS/JS)
 - `guardrails.py` → Safety filtering (dangerous shell patterns, JSON enforcement) — do not bypass
