@@ -7,6 +7,12 @@ import config
 
 LOG_PATH = os.path.join(config.ENGAGEMENTS_DIR, "shell_command_log.jsonl")
 
+# NOTE: this file intentionally contains only the live shell-safety surface
+# (is_dangerous_shell_command / check_shell_command / log_shell_command). The
+# old enforce_json / validate_findings / confidence_check helpers belonged to
+# the pre-tool-calling JSON-pipeline architecture and were removed - the
+# current ReAct loop (core/agent.py) never produces those JSON blobs.
+
 # Patterns that can destroy data or the host filesystem. Anything matching
 # requires force=True from the caller (see check_shell_command below).
 DANGEROUS_PATTERNS = [
@@ -22,48 +28,6 @@ DANGEROUS_PATTERNS = [
 
 
 class Guardrails:
-    @staticmethod
-    def enforce_json(response_text: str) -> dict:
-        """
-        Strips markdown code fences and safely parses JSON.
-        """
-        match = re.search(r"\{.*\}", response_text, re.DOTALL)
-        clean_text = match.group(0) if match else response_text
-        try:
-            return json.loads(clean_text)
-        except json.JSONDecodeError as e:
-            if "generate_report" in clean_text and "content_markdown" in clean_text:
-                md_match = re.search(r'"content_markdown"\s*:\s*"(.*)', clean_text, re.DOTALL)
-                if md_match:
-                    content = md_match.group(1)
-                    content = re.sub(r'"\s*\}*\s*$', '', content)
-                    return {
-                        "thought": "Recovered report from broken or truncated JSON.",
-                        "tool_call": "generate_report",
-                        "params": {"content_markdown": content},
-                    }
-            raise ValueError(f"Failed to parse LLM response as JSON: {str(e)}")
-
-    @staticmethod
-    def validate_findings(llm_json: dict, raw_tool_output: str) -> dict:
-        """Checks if findings mentioned by the LLM actually exist in the tool output."""
-        findings = llm_json.get("findings", [])
-        validated = []
-        for finding in findings:
-            description = finding.get("description", "")
-            finding["validated"] = description.lower() in raw_tool_output.lower()
-            if not finding.get("validated"):
-                finding["warning"] = "Finding not explicitly found in tool output evidence."
-            finding["confidence"] = Guardrails.confidence_check(finding)
-            validated.append(finding)
-        llm_json["findings"] = validated
-        return llm_json
-
-    @staticmethod
-    def confidence_check(finding: dict) -> str:
-        """Helper to assign confidence level based on evidence."""
-        return "high" if finding.get("evidence") else "low"
-
     @staticmethod
     def is_dangerous_shell_command(command: str) -> bool:
         return any(re.search(p, command, re.IGNORECASE) for p in DANGEROUS_PATTERNS)
