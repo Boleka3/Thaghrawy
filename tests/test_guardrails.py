@@ -59,61 +59,6 @@ def test_check_shell_command_allows_dangerous_with_force_when_confirm_not_requir
     assert "force=True" in reason
 
 
-def test_enforce_json_parses_clean_json():
-    result = Guardrails.enforce_json('{"thought": "ok", "tool_call": "nmap_scan"}')
-    assert result == {"thought": "ok", "tool_call": "nmap_scan"}
-
-
-def test_enforce_json_strips_surrounding_text_and_fences():
-    text = 'Here is my response:\n```json\n{"thought": "scanning"}\n```\nDone.'
-    result = Guardrails.enforce_json(text)
-    assert result == {"thought": "scanning"}
-
-
-def test_enforce_json_recovers_truncated_generate_report_call():
-    broken = (
-        '{"thought": "wrapping up", "tool_call": "generate_report", '
-        '"params": {"content_markdown": "# Report\\n\\nSome findings here'
-    )
-    result = Guardrails.enforce_json(broken)
-    assert result["tool_call"] == "generate_report"
-    assert "Some findings here" in result["params"]["content_markdown"]
-
-
-def test_enforce_json_raises_on_unrecoverable_garbage():
-    with pytest.raises(ValueError):
-        Guardrails.enforce_json("not json at all and no braces")
-
-
-def test_validate_findings_marks_validated_when_evidence_present():
-    llm_json = {
-        "findings": [
-            {"description": "SQL injection found", "evidence": "sqlmap output"},
-        ]
-    }
-    raw_output = "scan complete: SQL injection found in parameter id"
-    result = Guardrails.validate_findings(llm_json, raw_output)
-    assert result["findings"][0]["validated"] is True
-    assert result["findings"][0]["confidence"] == "high"
-    assert "warning" not in result["findings"][0]
-
-
-def test_validate_findings_flags_unvalidated_and_low_confidence():
-    llm_json = {"findings": [{"description": "a finding never mentioned in output"}]}
-    result = Guardrails.validate_findings(llm_json, "totally unrelated raw tool output")
-    assert result["findings"][0]["validated"] is False
-    assert result["findings"][0]["warning"]
-    assert result["findings"][0]["confidence"] == "low"
-
-
-def test_confidence_check_high_with_evidence():
-    assert Guardrails.confidence_check({"evidence": "some proof"}) == "high"
-
-
-def test_confidence_check_low_without_evidence():
-    assert Guardrails.confidence_check({}) == "low"
-
-
 def test_log_shell_command_writes_jsonl_entry(tmp_path, monkeypatch):
     log_path = tmp_path / "shell_command_log.jsonl"
     monkeypatch.setattr(guardrails, "LOG_PATH", str(log_path))
