@@ -63,6 +63,23 @@ def save_to_workspace(filename: str, content: str) -> str:
     return filepath
 
 
+def _log_command(cmd: list[str]) -> None:
+    """Audit-log every executed tool command (argv joined) to the shared
+    shell command log, satisfying the project rule that all command
+    execution is logged. Best-effort: a logging failure never aborts a scan.
+    The engagement context is read from THAGHRAWY_ENGAGEMENT_ID when the
+    agent process sets it (defaults to 'mcp-tools')."""
+    try:
+        import guardrails
+
+        engagement_id = os.environ.get("THAGHRAWY_ENGAGEMENT_ID", "mcp-tools")
+        guardrails.Guardrails.log_shell_command(
+            " ".join(cmd), engagement_id, allowed=True, reason="mcp tool"
+        )
+    except Exception as exc:  # pragma: no cover - logging must never break a scan
+        logger.warning(f"Failed to log command: {exc}")
+
+
 def run_command(
     cmd: list[str],
     tool_name: str,
@@ -77,6 +94,7 @@ def run_command(
     timeout = timeout or config.RECON_TIMEOUT
     try:
         logger.info(f"Executing: {' '.join(cmd)} (timeout={timeout}s)")
+        _log_command(cmd)
         result = subprocess.run(
             cmd, capture_output=True, text=True, timeout=timeout,
             env=SUBPROCESS_ENV,
