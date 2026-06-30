@@ -1,10 +1,14 @@
-"""Kill Chain — Delivery / C2: test a URL parameter for Server-Side Request Forgery."""
+"""Kill Chain — Delivery / C2: test a URL parameter for Server-Side Request Forgery.
+
+Each payload probe goes through run_command() so it gets the shared timeout,
+PATH/env handling, and command logging - rather than a hand-rolled
+subprocess.run that bypasses all three.
+"""
 from __future__ import annotations
 
-import subprocess
 from typing import Any
 
-from mcp_servers.tools._common import SUBPROCESS_ENV, safe_filename, save_to_workspace, sanitize_input
+from mcp_servers.tools._common import run_command, safe_filename, sanitize_input, save_to_workspace
 
 _SSRF_PAYLOADS = [
     ("internal_localhost",   "http://localhost/"),
@@ -16,6 +20,17 @@ _SSRF_PAYLOADS = [
     ("dict_protocol",        "dict://127.0.0.1:11211/stats"),
     ("gopher_redis",         "gopher://127.0.0.1:6379/_PING%0D%0A"),
 ]
+
+_CURL_WRITE_OUT = "%{http_code}:%{size_download}"
+
+
+def _parse_curl_metrics(stdout: str) -> dict[str, Any]:
+    code, _, size = stdout.strip().partition(":")
+    try:
+        response_size = int(size or 0)
+    except ValueError:
+        response_size = 0
+    return {"http_code": code or "ERR", "response_size": response_size}
 
 
 def ssrf_test(url: str, param: str, method: str = "GET") -> dict[str, Any]:
@@ -37,23 +52,35 @@ def ssrf_test(url: str, param: str, method: str = "GET") -> dict[str, Any]:
     results = []
     for label, payload in _SSRF_PAYLOADS:
         if method == "POST":
-            cmd = ["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}:%{size_download}",
+            cmd = ["curl", "-s", "-o", "/dev/null", "-w", _CURL_WRITE_OUT,
                    "-X", "POST", "-d", f"{param}={payload}", url]
         else:
             separator = "&" if "?" in url else "?"
             full_url = f"{url}{separator}{param}={payload}"
-            cmd = ["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}:%{size_download}",
-                   full_url]
-        try:
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=10, env=SUBPROCESS_ENV)
-            code, size = (r.stdout.strip() + ":0").split(":")[:2]
-            results.append({"payload_label": label, "payload": payload, "http_code": code, "response_size": int(size)})
-        except Exception as e:
-            results.append({"payload_label": label, "payload": payload, "error": str(e)})
+            cmd = ["curl", "-s", "-o", "/dev/null", "-w", _CURL_WRITE_OUT, full_url]
+
+        res = run_command(cmd, "ssrf_test", url, parser=_parse_curl_metrics, timeout=10)
+        if res.get("status") == "success":
+            results.append({
+                "payload_label": label, "payload": payload,
+                "http_code": res.get("http_code", "ERR"),
+                "response_size": res.get("response_size", 0),
+            })
+        else:
+            results.append({
+                "payload_label": label, "payload": payload,
+                "error": res.get("error") or res.get("error_preview", "request failed"),
+            })
 
     suspicious = [r for r in results if r.get("http_code") == "200" and r.get("response_size", 0) > 0]
-    summary = f"{len(suspicious)}/{len(results)} payloads got non-empty 200 responses — potential SSRF" if suspicious else "No SSRF indicators found"
-    out = "\n".join(f"{r['payload_label']}: {r.get('http_code','ERR')} size={r.get('response_size',0)}" for r in results)
+    summary = (
+        f"{len(suspicious)}/{len(results)} payloads got non-empty 200 responses — potential SSRF"
+        if suspicious else "No SSRF indicators found"
+    )
+    out = "\n".join(
+        f"{r['payload_label']}: {r.get('http_code', 'ERR')} size={r.get('response_size', 0)}"
+        for r in results
+    )
     log_path = save_to_workspace(safe_filename(url, "ssrf_test"), out)
 
     return {
