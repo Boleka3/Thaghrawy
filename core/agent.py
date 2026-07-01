@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, AsyncIterator, Optional
 
+import config
 from core.context import ContextManager
 from core.llm import BaseLLMProvider, get_provider
 from core.tools import ToolRegistry, build_default_registry
@@ -15,7 +16,7 @@ from prompt_builder import build_system_prompt
 if TYPE_CHECKING:
     from engagements.manager import EngagementManager
 
-MAX_TOOL_ITERATIONS = 8
+MAX_TOOL_ITERATIONS = config.MAX_TOOL_ITERATIONS
 
 MEMORY_EXTRA_SECTION = (
     "\nWhen search_memory returns hits above your judgment of relevance, weave them "

@@ -126,10 +126,13 @@ async def nmap_scan(
     ports: str = "",
     scan_type: str = "default",
     service_detection: bool = True,
+    top_ports: str = "",
 ) -> str:
     """Scan for open ports/services with nmap. scan_type: 'default' (top
-    1000 TCP), 'quick' (-F), 'full' (-p-), or 'udp'."""
-    return json.dumps(_nmap_scan(target, ports, scan_type, service_detection), indent=2)
+    1000 TCP), 'quick' (-F), 'full' (-p-), or 'udp'. `ports` is an explicit
+    list/range ('22,80,443'); `top_ports` is the COUNT of most-common ports
+    ('100' -> --top-ports 100)."""
+    return json.dumps(_nmap_scan(target, ports, scan_type, service_detection, top_ports), indent=2)
 
 
 @mcp.tool()
@@ -166,10 +169,14 @@ async def arjun_scan(url: str, method: str = "GET", threads: int = 10) -> str:
 
 
 @mcp.tool()
-async def masscan_scan(target: str, ports: str = "1-1000", rate: int = 1000) -> str:
+async def masscan_scan(
+    target: str, ports: str = "1-1000", rate: int = 1000, top_ports: str = ""
+) -> str:
     """Fast async port scan of a host/CIDR range. Pair with nmap_scan for
-    service/version detection on the ports it finds."""
-    return json.dumps(_masscan_scan(target, ports, rate), indent=2)
+    service/version detection on the ports it finds. `ports` is a list/range
+    ('80,443' or '1-1000'); `top_ports` is accepted only as an alias for
+    `ports` (masscan has no top-ports preset)."""
+    return json.dumps(_masscan_scan(target, ports, rate, top_ports), indent=2)
 
 
 @mcp.tool()
@@ -307,6 +314,19 @@ def _within_workspace(real_path: str, real_workspace: str) -> bool:
         return False  # e.g. different drives, or mixed absolute/relative
 
 
+def _resolve_workspace_path(filename: str) -> str:
+    """Resolve a workspace filename to a path. Scan tools hand back values like
+    './engagements/sessions/_workspace/<file>'; the workspace is flat, so if the
+    given path isn't a file, fall back to its basename inside the workspace.
+    Traversal is still caught by the _within_workspace guard at the call site: an
+    escaping path like '../../etc/passwd' points at a real file (isfile True) so
+    it is returned unchanged and the guard then rejects it."""
+    direct = os.path.join(WORKSPACE_DIR, filename)
+    if os.path.isfile(direct):
+        return direct
+    return os.path.join(WORKSPACE_DIR, os.path.basename(filename))
+
+
 @mcp.tool()
 async def list_workspace() -> str:
     """List all files saved to the recon workspace by previous tool runs."""
@@ -334,11 +354,12 @@ async def read_file(filename: str, max_lines: int = 100) -> str:
     if not filename:
         return json.dumps({"status": "error", "error": "Filename required"})
 
-    filepath = os.path.join(WORKSPACE_DIR, filename)
-    real_path = os.path.realpath(filepath)
     real_workspace = os.path.realpath(WORKSPACE_DIR)
-    if not _within_workspace(real_path, real_workspace):
+    # Guard on the raw path first so an escaping input is rejected explicitly,
+    # before the basename fallback (which would otherwise pull it back inside).
+    if not _within_workspace(os.path.realpath(os.path.join(WORKSPACE_DIR, filename)), real_workspace):
         return json.dumps({"status": "error", "error": "Access denied: path traversal detected"})
+    filepath = _resolve_workspace_path(filename)
     if not os.path.isfile(filepath):
         return json.dumps({"status": "error", "error": f"File not found: {filename}"})
 
@@ -367,10 +388,9 @@ async def grep_workspace(pattern: str, filename: str = "") -> str:
     files_to_search = []
     if filename:
         filename = sanitize_input(filename)
-        filepath = os.path.join(WORKSPACE_DIR, filename)
-        real_path = os.path.realpath(filepath)
-        if not _within_workspace(real_path, real_workspace):
+        if not _within_workspace(os.path.realpath(os.path.join(WORKSPACE_DIR, filename)), real_workspace):
             return json.dumps({"status": "error", "error": "Access denied: path traversal detected"})
+        filepath = _resolve_workspace_path(filename)
         if not os.path.isfile(filepath):
             return json.dumps({"status": "error", "error": f"File not found: {filename}"})
         files_to_search = [filepath]

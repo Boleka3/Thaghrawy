@@ -63,6 +63,23 @@ def test_httpx_scan_with_inline_domains_writes_workspace_file(fake_subprocess, t
     assert "example.com" in open(written_path).read()
 
 
+def test_httpx_scan_coerces_comma_string_domains(fake_subprocess, tmp_path):
+    # The LLM often passes `domains` as a comma string, not a JSON list. It must
+    # be split into real hosts, not "\n".join()'d character-by-character.
+    fake_subprocess.stdout = _SAMPLE_STDOUT
+    httpx_scan(domains="www.nisc.coop, nisc.coop")
+    written = open(fake_subprocess.last_call[fake_subprocess.last_call.index("-l") + 1]).read()
+    assert written.splitlines() == ["www.nisc.coop", "nisc.coop"]
+
+
+def test_httpx_scan_reroutes_file_path_passed_as_domains(fake_subprocess, tmp_path):
+    # A workspace file path handed to `domains` (meant `file`) is used as -l input.
+    (tmp_path / "subs.txt").write_text("a.example.com\n")
+    fake_subprocess.stdout = _SAMPLE_STDOUT
+    httpx_scan(domains="./engagements/sessions/_workspace/subs.txt")
+    assert fake_subprocess.last_call[fake_subprocess.last_call.index("-l") + 1] == str(tmp_path / "subs.txt")
+
+
 def test_parse_httpx_extracts_alive_hosts():
     parsed = _parse_httpx(_SAMPLE_STDOUT)
     assert parsed["alive_count"] == 2

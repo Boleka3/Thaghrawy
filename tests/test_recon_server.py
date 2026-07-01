@@ -18,7 +18,9 @@ from mcp_servers.recon_server import (
     dnsx_scan,
     grep_workspace,
     list_workspace,
+    masscan_scan,
     naabu_scan,
+    nmap_scan,
     read_file,
     web_tech_detect,
 )
@@ -198,6 +200,34 @@ async def test_list_workspace_lists_saved_files(tmp_path):
     assert result["file_count"] == 2
     names = {f["filename"] for f in result["files"]}
     assert names == {"scan1.txt", "scan2.txt"}
+
+
+@pytest.mark.anyio
+async def test_nmap_scan_wrapper_accepts_top_ports(fake_subprocess):
+    # Agent-facing wrapper must not TypeError on top_ports (the model passes it,
+    # generalizing from naabu). Numeric -> --top-ports.
+    fake_subprocess.result = _FakeCompletedProcess(stdout="80/tcp open http\n")
+    await nmap_scan(target="nisc.coop", top_ports="100")
+    cmd = fake_subprocess.calls[-1]
+    assert cmd[cmd.index("--top-ports") + 1] == "100"
+
+
+@pytest.mark.anyio
+async def test_masscan_scan_wrapper_accepts_top_ports(fake_subprocess):
+    fake_subprocess.result = _FakeCompletedProcess(stdout="")
+    await masscan_scan(target="10.0.0.1", top_ports="80,443")
+    cmd = fake_subprocess.calls[-1]
+    assert cmd[cmd.index("-p") + 1] == "80,443"
+
+
+@pytest.mark.anyio
+async def test_read_file_accepts_returned_workspace_path(tmp_path):
+    # Scan tools hand back './engagements/sessions/_workspace/<file>'; read_file
+    # must resolve that down to the flat workspace file, not double the path.
+    (tmp_path / "subs.txt").write_text("a.example.com\n")
+    result = json.loads(await read_file(filename="./engagements/sessions/_workspace/subs.txt"))
+    assert result["status"] == "success"
+    assert "a.example.com" in result["content"]
 
 
 @pytest.mark.anyio
