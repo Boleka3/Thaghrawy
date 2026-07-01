@@ -28,4 +28,10 @@ async def lm_studio_status() -> dict:
             "available_models": models,
         }
     except Exception as e:
-        return {"provider": "lm_studio", "lm_studio": True, "model": config.OPENAI_MODEL, "loaded": False, "error": str(e)}
+        return {
+            "provider": "lm_studio",
+            "lm_studio": True,
+            "model": config.OPENAI_MODEL,
+            "loaded": False,
+            "error": str(e),
+        }
