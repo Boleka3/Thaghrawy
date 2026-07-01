@@ -10,6 +10,7 @@ RUN for i in 1 2 3; do \
         amass whois dnsutils ca-certificates git curl unzip \
         subfinder httpx-toolkit nuclei naabu dnsx assetfinder \
         wpscan testssl.sh wafw00f exploitdb masscan enum4linux \
+        wapiti \
         seclists wordlists \
         ruby ruby-dev build-essential libssl-dev && break || sleep 5; \
     done && \
@@ -40,6 +41,24 @@ RUN url="$(curl -fsSL --connect-timeout 15 --retry 5 --retry-delay 5 \
         && rm -f /tmp/katana.zip; \
     else \
         echo "WARNING: katana install skipped (asset unresolved or GitHub unreachable); katana_crawl unavailable"; \
+    fi
+
+# dalfox (XSS scanner, OWASP A03) is not in Kali apt and there's no Go toolchain
+# in the image, so install the prebuilt Linux binary from GitHub releases. Same
+# best-effort pattern as katana: resolve the versioned asset via the API, bounded
+# retries, non-fatal fallback (dalfox_scan degrades to "binary not found").
+RUN url="$(curl -fsSL --connect-timeout 15 --retry 5 --retry-delay 5 \
+        https://api.github.com/repos/hahwul/dalfox/releases/latest \
+        | grep -oE 'https://[^\"]*dalfox-v[0-9.]+-linux-x86_64\.tar\.gz\"' \
+        | tr -d '\"' | head -1)"; \
+    if [ -n "$url" ] && curl -fsSL --connect-timeout 15 --max-time 240 --retry 5 --retry-delay 5 \
+            "$url" -o /tmp/dalfox.tar.gz; then \
+        cd /tmp && tar -xzf dalfox.tar.gz dalfox \
+        && mv /tmp/dalfox /usr/local/bin/dalfox \
+        && chmod +x /usr/local/bin/dalfox \
+        && rm -f /tmp/dalfox.tar.gz; \
+    else \
+        echo "WARNING: dalfox install skipped (asset unresolved or GitHub unreachable); dalfox_scan unavailable"; \
     fi
 
 WORKDIR /app

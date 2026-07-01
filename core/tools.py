@@ -300,6 +300,8 @@ _RECON_TOOL_NAMES = (
 )
 _EXPLOIT_TOOL_NAMES = (
     "sqlmap_scan", "nikto_scan", "hydra_bruteforce",
+    # OWASP A03 Injection (XSS) + broad OWASP web scanner
+    "dalfox_scan", "wapiti_scan",
     # Kill chain — Post-Exploitation
     "linux_privesc_check", "credential_search",
 )
