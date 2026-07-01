@@ -33,6 +33,23 @@ services:
     depends_on:
       - dvwa
       - juice-shop
+    # Reach services on the Docker host (e.g. an LM Studio / Ollama LLM running on this
+    # machine) by a stable name regardless of the host's LAN IP. Then set, in .env:
+    #   OPENAI_BASE_URL=http://host.docker.internal:1234/v1   (LM Studio)
+    #   OLLAMA_BASE_URL=http://host.docker.internal:11434     (Ollama)
+    # Cloud LLM APIs and external targets need nothing here — the container already has
+    # outbound internet egress via the default bridge. Requires Docker Engine >= 20.10.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    # Uncomment if a hardened host strips default caps and raw-socket scans
+    # (nmap -sS, masscan) fail with "operation not permitted":
+    # cap_add: [NET_RAW, NET_ADMIN]
+    #
+    # Alternative to bridge networking (Linux only): share the host network namespace —
+    # reaches host-local LLMs via localhost and simplifies external scanning, but DISABLES
+    # compose service-name DNS (dvwa/juice-shop) and port mapping. Do not combine with the
+    # ports:/extra_hosts above.
+    # network_mode: host
 
 volumes:
   chroma_data:
