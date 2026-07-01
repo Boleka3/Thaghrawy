@@ -83,7 +83,10 @@ def gobuster_scan(
     cmd += ["-w", resolved, "-t", str(threads), "-q", "--no-color"]
 
     if mode == "dir":
-        cmd += ["-s", sanitize_input(status_codes)]
+        # gobuster >=3.6 ships a default status-codes-blacklist of "404" and
+        # hard-errors if you also pass -s ("both set - please set only one").
+        # Clear the blacklist so our explicit -s allowlist is the sole filter.
+        cmd += ["-s", sanitize_input(status_codes), "-b", ""]
         if extensions:
             cmd += ["-x", sanitize_input(extensions)]
 

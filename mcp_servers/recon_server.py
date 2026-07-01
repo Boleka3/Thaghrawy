@@ -15,6 +15,7 @@ from mcp.server.fastmcp import FastMCP
 
 from mcp_servers.tools._common import (
     WORKSPACE_DIR,
+    resolve_host,
     run_command,
     safe_filename,
     sanitize_input,
@@ -256,6 +257,9 @@ async def naabu_scan(target: str, ports: str = "", top_ports: str = "100") -> st
     target = strip_url(sanitize_input(target))
     if not target:
         return json.dumps({"status": "error", "error": "Target required"})
+    # naabu's own resolver rejects single-label hostnames (e.g. docker service
+    # names) as "no valid ipv4 or ipv6 targets"; resolve to an IP first.
+    target = resolve_host(target)
     cmd = ["naabu", "-host", target, "-silent", "-nc"]
     if ports:
         cmd += ["-p", sanitize_input(ports)]

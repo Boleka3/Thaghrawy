@@ -2,6 +2,7 @@ import subprocess
 
 from mcp_servers.tools import _common
 from mcp_servers.tools._common import (
+    resolve_host,
     run_command,
     safe_filename,
     sanitize_input,
@@ -34,6 +35,34 @@ def test_strip_url_leaves_bare_host_and_cidr_untouched():
     assert strip_url("nisc.coop") == "nisc.coop"
     assert strip_url("10.0.0.0/24") == "10.0.0.0/24"  # CIDR mask must survive
     assert strip_url("192.168.1.1") == "192.168.1.1"
+
+
+def test_resolve_host_passes_ip_and_cidr_through_untouched(monkeypatch):
+    # Must NOT resolve - an IP/CIDR is already a valid scanner target and a
+    # gethostbyname call on it would be wrong (and could mangle a CIDR mask).
+    def _should_not_be_called(host):
+        raise AssertionError("gethostbyname must not be called for an IP/CIDR")
+
+    monkeypatch.setattr(_common.socket, "gethostbyname", _should_not_be_called)
+    assert resolve_host("192.168.1.1") == "192.168.1.1"
+    assert resolve_host("10.0.0.0/24") == "10.0.0.0/24"
+
+
+def test_resolve_host_resolves_bare_hostname_to_ip(monkeypatch):
+    monkeypatch.setattr(_common.socket, "gethostbyname", lambda h: "172.19.0.2")
+    assert resolve_host("juice-shop") == "172.19.0.2"
+
+
+def test_resolve_host_falls_back_to_original_on_failure(monkeypatch):
+    def boom(host):
+        raise OSError("name or service not known")
+
+    monkeypatch.setattr(_common.socket, "gethostbyname", boom)
+    assert resolve_host("nonexistent.invalid") == "nonexistent.invalid"
+
+
+def test_resolve_host_empty_string():
+    assert resolve_host("") == ""
 
 
 def test_sanitize_input_handles_empty_and_none():

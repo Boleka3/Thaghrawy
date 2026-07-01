@@ -76,9 +76,24 @@ python main.py               # Starts FastAPI on port 8000
 
 ## Adding a New MCP Recon Tool
 1. Add a wrapper module in `mcp_servers/tools/` using `mcp_servers/tools/_common.py`'s
-   `run_command()` helper (gives you timeout + workspace persistence + JSON envelope for free)
+   `run_command()` helper (gives you timeout + workspace persistence + JSON envelope for free).
+   For host-oriented scanners, normalize the target with `_common.strip_url()` (drops a
+   URL scheme/path) and, if the scanner does poor DNS resolution, `_common.resolve_host()`
+   (resolves a bare hostname to an IP; passes IPs/CIDRs through) — naabu/masscan need this.
 2. Import and register it with `@mcp.tool()` in `mcp_servers/recon_server.py`
 3. Test the wrapper directly with `python -c "from mcp_servers.tools.X import Y; print(Y(...))"`
+
+## Live Tool Smoke Test
+Unit tests mock `subprocess.run`, so they never catch real-CLI bugs (wrong binary
+name, URL-vs-host args, kwargs the LLM invents). `scripts/tool_smoke.py` closes that
+gap: it drives **every** registered tool through the agent's own
+`ToolRegistry.execute()` against a live, owned target (Juice Shop) and classifies each
+result as OK / needs-review / BUG (uncaught exception, missing binary, bad kwarg).
+Run it in the container after touching any tool wrapper:
+```bash
+docker compose exec -T agent python3 -m scripts.tool_smoke   # exit != 0 if any BUG
+```
+Empty results on an N/A target (no subdomains/TLS/SMB) are expected, not bugs.
 
 ## Current Agent Tools
 - `search_memory`, `save_finding`, `save_technique`, `load_engagement_context` — memory

@@ -142,6 +142,17 @@ async def test_naabu_scan_strips_url_target(fake_subprocess):
     assert cmd[:3] == ["naabu", "-host", "10.0.0.1"]
 
 
+@pytest.mark.anyio
+async def test_naabu_scan_resolves_hostname_to_ip(fake_subprocess, monkeypatch):
+    # naabu's resolver rejects single-label hostnames (docker service names) as
+    # "no valid ipv4 or ipv6 targets"; the wrapper resolves to an IP first.
+    fake_subprocess.result = _FakeCompletedProcess(stdout="")
+    monkeypatch.setattr(_common.socket, "gethostbyname", lambda h: "172.19.0.2")
+    await naabu_scan(target="juice-shop", ports="3000")
+    cmd = fake_subprocess.calls[-1]
+    assert cmd[:3] == ["naabu", "-host", "172.19.0.2"]
+
+
 def test_parse_naabu_extracts_ports_and_hosts():
     parsed = _parse_naabu("10.0.0.1:22\n10.0.0.1:80\n10.0.0.2:22\n")
     assert parsed["open_port_count"] == 2

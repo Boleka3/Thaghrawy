@@ -7,9 +7,11 @@ envelope shape - stays consistent across tools.
 """
 from __future__ import annotations
 
+import ipaddress
 import logging
 import os
 import re
+import socket
 import subprocess
 import sys
 from datetime import datetime
@@ -53,6 +55,26 @@ def strip_url(target: str) -> str:
     if m:
         return t[m.end():].split("/", 1)[0]
     return t
+
+
+def resolve_host(target: str) -> str:
+    """Resolve a bare hostname to its IPv4 address, passing IPs and CIDRs
+    through untouched. Some scanners don't do (reliable) name resolution
+    themselves - naabu rejects a single-label docker name as 'no valid ipv4 or
+    ipv6 targets', masscan rejects any hostname outright - so wrappers resolve
+    first. Falls back to the original string on resolution failure so the caller
+    still gets a meaningful tool-level error rather than a silent miss."""
+    if not target:
+        return target
+    try:
+        ipaddress.ip_network(target, strict=False)
+        return target  # already an IP or CIDR
+    except ValueError:
+        pass
+    try:
+        return socket.gethostbyname(target)
+    except OSError:
+        return target
 
 
 def sanitize_input(value: Optional[str]) -> str:
