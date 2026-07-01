@@ -52,8 +52,14 @@ def ssrf_test(url: str, param: str, method: str = "GET") -> dict[str, Any]:
             results.append({"payload_label": label, "payload": payload, "error": str(e)})
 
     suspicious = [r for r in results if r.get("http_code") == "200" and r.get("response_size", 0) > 0]
-    summary = f"{len(suspicious)}/{len(results)} payloads got non-empty 200 responses — potential SSRF" if suspicious else "No SSRF indicators found"
-    out = "\n".join(f"{r['payload_label']}: {r.get('http_code','ERR')} size={r.get('response_size',0)}" for r in results)
+    summary = (
+        f"{len(suspicious)}/{len(results)} payloads got non-empty 200 responses — potential SSRF"
+        if suspicious else "No SSRF indicators found"
+    )
+    out = "\n".join(
+        f"{r['payload_label']}: {r.get('http_code', 'ERR')} size={r.get('response_size', 0)}"
+        for r in results
+    )
     log_path = save_to_workspace(safe_filename(url, "ssrf_test"), out)
 
     return {
