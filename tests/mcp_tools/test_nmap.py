@@ -57,6 +57,14 @@ def test_nmap_scan_sanitizes_target(fake_subprocess):
     assert fake_subprocess.last_call[-1] == "example.com rm -rf /"
 
 
+def test_nmap_scan_strips_url_scheme_and_path(fake_subprocess):
+    # nmap fails with "Unable to split netmask" on a URL and reports 0 ports;
+    # the wrapper normalizes http://host/path down to the bare host.
+    fake_subprocess.stdout = _SAMPLE_STDOUT
+    nmap_scan(target="http://nisc.coop/some/path")
+    assert fake_subprocess.last_call[-1] == "nisc.coop"
+
+
 def test_parse_nmap_extracts_open_ports_and_os_guess():
     parsed = _parse_nmap(_SAMPLE_STDOUT)
     assert parsed["total_ports_reported"] == 3

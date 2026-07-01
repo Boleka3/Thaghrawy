@@ -117,6 +117,25 @@ registered with `dangerous=True`. Every scan tool goes through
 `mcp_servers/tools/_common.py::run_command()`, which enforces a real subprocess
 timeout so a hung scan can't block the agent forever.
 
+Wrapper conventions worth knowing:
+
+- **Host scanners take a host, not a URL.** `nmap_scan`, `masscan_scan`, and
+  `naabu_scan` normalize their target through `_common.py::strip_url()`, so
+  `http://host/path` is accepted and reduced to `host` (nmap otherwise fails with
+  "Unable to split netmask" and reports zero ports).
+- **HTTP probing uses the ProjectDiscovery binary.** `httpx_scan` invokes
+  `httpx-toolkit` (its Kali/Docker name) so the Python `httpx` HTTP-client CLI in
+  the venv can't shadow it; it falls back to `httpx` for bare-metal installs.
+- **Port presets vs. explicit ports.** `naabu_scan`'s `top_ports` is naabu's
+  preset and only accepts `full`/`100`/`1000`; pass an explicit list/range
+  (`80,443,8080`, `1-1000`) via `ports`. A comma list mistakenly sent as
+  `top_ports` is still routed to `-p` rather than erroring. `masscan_scan`
+  accepts `top_ports` only as an alias for `ports`.
+- **amass in Docker** is symlinked to the upstream binary (`/usr/lib/amass/amass`)
+  to bypass Kali's wrapper script, which otherwise runs `sudo libpostal_data` and
+  fails inside the container. On bare-metal Kali the same wrapper needs libpostal
+  data (or an upstream `amass` earlier on `PATH`).
+
 `skills.py` maps each phase of a pentest (recon, content discovery, vuln scanning,
 exploitation, network/AD, reporting) to the tools relevant to it and OWASP/PTES-style
 guidance text. `prompt_builder.py` injects this as a methodology reference into every

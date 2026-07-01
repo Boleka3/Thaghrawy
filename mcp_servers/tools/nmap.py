@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from mcp_servers.tools._common import run_command, sanitize_input
+from mcp_servers.tools._common import run_command, sanitize_input, strip_url
 
 
 def _parse_nmap(stdout: str) -> dict[str, Any]:
@@ -39,7 +39,7 @@ def nmap_scan(
     """Scan a host/range for open ports and services. `scan_type`:
     'default' (top 1000 TCP), 'quick' (-F fast scan), 'full' (-p- all 65535),
     or 'udp' (-sU, slower, top UDP ports)."""
-    target = sanitize_input(target)
+    target = strip_url(sanitize_input(target))
     if not target:
         return {"status": "error", "error": "Target required"}
 

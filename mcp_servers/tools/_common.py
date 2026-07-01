@@ -40,6 +40,21 @@ SUBPROCESS_ENV = {
 }
 
 
+def strip_url(target: str) -> str:
+    """nmap/masscan/naabu take a host or CIDR, not a URL. When the target is a
+    URL (has a scheme://), drop the scheme and any /path so
+    'http://nisc.coop/x' -> 'nisc.coop'. A bare host, IP, or CIDR is returned
+    unchanged - only a real URL has its path stripped, so CIDR masks like
+    '10.0.0.0/24' are never mangled."""
+    if not target:
+        return ""
+    t = target.strip()
+    m = re.match(r"^\w+://", t)
+    if m:
+        return t[m.end():].split("/", 1)[0]
+    return t
+
+
 def sanitize_input(value: Optional[str]) -> str:
     """Strip shell metacharacters. Commands are run via argv lists (no
     shell=True) so this isn't an injection fix - it's a defense-in-depth

@@ -121,6 +121,25 @@ async def test_naabu_scan_default_uses_top_ports(fake_subprocess):
     assert "-top-ports" in cmd and cmd[cmd.index("-top-ports") + 1] == "100"
 
 
+@pytest.mark.anyio
+async def test_naabu_scan_comma_top_ports_routed_to_dash_p(fake_subprocess):
+    # naabu -top-ports only accepts full/100/1000; a comma list mistakenly
+    # passed there must be routed to -p instead of erroring out.
+    fake_subprocess.result = _FakeCompletedProcess(stdout="")
+    await naabu_scan(target="10.0.0.1", top_ports="80,443,8080")
+    cmd = fake_subprocess.calls[-1]
+    assert "-top-ports" not in cmd
+    assert cmd[cmd.index("-p") + 1] == "80,443,8080"
+
+
+@pytest.mark.anyio
+async def test_naabu_scan_strips_url_target(fake_subprocess):
+    fake_subprocess.result = _FakeCompletedProcess(stdout="")
+    await naabu_scan(target="http://10.0.0.1/path")
+    cmd = fake_subprocess.calls[-1]
+    assert cmd[:3] == ["naabu", "-host", "10.0.0.1"]
+
+
 def test_parse_naabu_extracts_ports_and_hosts():
     parsed = _parse_naabu("10.0.0.1:22\n10.0.0.1:80\n10.0.0.2:22\n")
     assert parsed["open_port_count"] == 2
@@ -134,12 +153,24 @@ async def test_dnsx_scan_requires_target_or_list_file():
 
 
 @pytest.mark.anyio
-async def test_dnsx_scan_with_target_builds_expected_argv(fake_subprocess):
+async def test_dnsx_scan_with_target_resolves_via_list(fake_subprocess):
+    # Plain resolution (no wordlist) must use -l, not -d: dnsx's -d is
+    # bruteforce mode and requires -w, which is what broke the nisc.coop run.
     fake_subprocess.result = _FakeCompletedProcess(stdout="example.com. A 1.2.3.4\n")
     await dnsx_scan(target="example.com", record_type="a")
     cmd = fake_subprocess.calls[-1]
-    assert "-d" in cmd and cmd[cmd.index("-d") + 1] == "example.com"
+    assert "-d" not in cmd
+    assert "-l" in cmd  # a workspace list file holding the host
     assert "-a" in cmd
+
+
+@pytest.mark.anyio
+async def test_dnsx_scan_with_wordlist_uses_bruteforce(fake_subprocess):
+    fake_subprocess.result = _FakeCompletedProcess(stdout="")
+    await dnsx_scan(target="example.com", wordlist="words.txt")
+    cmd = fake_subprocess.calls[-1]
+    assert cmd[cmd.index("-d") + 1] == "example.com"
+    assert cmd[cmd.index("-w") + 1] == "words.txt"
 
 
 @pytest.mark.anyio

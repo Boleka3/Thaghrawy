@@ -5,6 +5,7 @@ path from a prior tool call couldn't be resolved by httpx -l."""
 from __future__ import annotations
 
 import os
+import shutil
 from typing import Any, Optional
 
 from mcp_servers.tools._common import (
@@ -38,5 +39,11 @@ def httpx_scan(file: Optional[str] = None, domains: Optional[list[str]] = None) 
         if not os.path.isfile(file):
             return {"status": "error", "error": f"Input file not found: {file}"}
 
-    cmd = ["httpx", "-l", file, "-sc", "-title", "-tech-detect", "-silent"]
+    # On Kali/Docker the ProjectDiscovery binary is installed as `httpx-toolkit`
+    # so it doesn't collide with the Python `httpx` HTTP-client CLI that ships in
+    # our venv (which has no `-l` and would error). Prefer it; fall back to
+    # `httpx` for bare-metal installs where the PD binary keeps that name (the
+    # _common.py PATH ordering puts ~/go/bin + /usr/local/bin ahead of the venv).
+    binary = shutil.which("httpx-toolkit") or "httpx"
+    cmd = [binary, "-l", file, "-sc", "-title", "-tech-detect", "-silent"]
     return run_command(cmd, "httpx", file, parser=_parse_httpx)
