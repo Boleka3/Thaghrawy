@@ -20,6 +20,27 @@ findings collect on the right. The WebSocket at `/ws/chat?engagement_id=...`
 streams `memory_hit` / `tool_call` / `tool_result` / `token` /
 `finding_saved` / `done` / `error` events.
 
+## Running with Docker
+
+The full stack (agent + DVWA + Juice Shop targets) runs via Docker Compose. The
+compute backend for the embedding model is modular — pick the one matching your host:
+
+```bash
+# CPU-only (default) — lean image, runs anywhere
+docker compose up --build
+
+# NVIDIA GPU — needs the NVIDIA Container Toolkit on the host
+docker compose -f docker-compose.yml -f docker-compose.gpu-nvidia.yml up --build
+
+# AMD GPU — needs the ROCm kernel driver on the host
+docker compose -f docker-compose.yml -f docker-compose.gpu-amd.yml up --build
+```
+
+The CPU build avoids pulling the multi-GB CUDA torch wheels; the GPU overrides select the
+matching torch wheel index (`cuda`/`rocm`) via the `COMPUTE_BACKEND` build arg and pass the
+GPU devices through to the container. Inside the compose network the agent reaches DVWA at
+`http://dvwa:80` and Juice Shop at `http://juice-shop:3000`.
+
 ## Architecture
 
 ```

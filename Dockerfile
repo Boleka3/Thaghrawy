@@ -5,7 +5,7 @@ ENV PATH="/root/go/bin:/usr/local/go/bin:${PATH}"
 
 RUN for i in 1 2 3; do \
       apt-get update && apt-get install -y --no-install-recommends \
-        python3 python3-pip \
+        python3 python3-pip python3-dev python3-venv \
         nmap whatweb gobuster nikto sqlmap hydra ffuf \
         amass whois dnsutils ca-certificates git curl unzip \
         subfinder httpx-toolkit nuclei naabu dnsx assetfinder \
@@ -36,8 +36,39 @@ RUN url="$(curl -fsSL --connect-timeout 15 --retry 5 --retry-delay 5 \
     fi
 
 WORKDIR /app
+
+# Install our Python deps into an isolated virtualenv rather than over Kali's system
+# Python. Kali ships several apt-managed modules (python3-requests, python3-cryptography,
+# …) with no pip RECORD file, so pip can't uninstall them to honor our pinned versions and
+# the build fails. A clean venv sidesteps that entire class of conflict. Kali's own CLI
+# tools (nmap/sqlmap/wpscan/…) are invoked as subprocess binaries using /usr/bin/python3
+# and are unaffected by this venv.
+RUN python3 -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# torch backend is modular so the same image builds for CPU, NVIDIA (CUDA), or AMD (ROCm).
+# sentence-transformers pulls torch, and the default PyPI torch on linux-x86_64 is the
+# multi-GB CUDA build — wasteful for CPU/AMD hosts. Install torch first from the wheel
+# index matching COMPUTE_BACKEND so the later `-r requirements.txt` finds it already
+# satisfied and never re-pulls the CUDA default.
+#   cpu  (default) → CPU-only wheels (lean image, runs anywhere)
+#   cuda           → NVIDIA GPU (default PyPI CUDA build)
+#   rocm           → AMD GPU (ROCm wheels)
+ARG COMPUTE_BACKEND=cpu
+RUN case "$COMPUTE_BACKEND" in \
+      cpu)  IDX="https://download.pytorch.org/whl/cpu" ;; \
+      cuda) IDX="" ;; \
+      rocm) IDX="https://download.pytorch.org/whl/rocm6.2" ;; \
+      *) echo "unknown COMPUTE_BACKEND=$COMPUTE_BACKEND (use cpu|cuda|rocm)" >&2; exit 1 ;; \
+    esac; \
+    if [ -n "$IDX" ]; then \
+      pip install --no-cache-dir --index-url "$IDX" torch; \
+    else \
+      pip install --no-cache-dir torch; \
+    fi
+
 COPY requirements.txt .
-RUN pip3 install --no-cache-dir --break-system-packages -r requirements.txt arjun
+RUN pip install --no-cache-dir -r requirements.txt arjun
 
 COPY . .
 

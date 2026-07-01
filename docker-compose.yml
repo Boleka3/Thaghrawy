@@ -10,7 +10,12 @@ services:
       - "3000:3000"
 
   agent:
-    build: .
+    build:
+      context: .
+      args:
+        # cpu (default) | cuda (NVIDIA) | rocm (AMD). Override via the gpu compose files
+        # or `COMPUTE_BACKEND=cuda docker compose build`.
+        COMPUTE_BACKEND: ${COMPUTE_BACKEND:-cpu}
     ports:
       - "8000:8000"
     env_file:
