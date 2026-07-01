@@ -22,6 +22,10 @@ OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3")
 TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.2"))
 MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "4096"))
 
+# Max assistant<->tool round-trips per user turn in the agent ReAct loop. A real
+# multi-subdomain recon needs headroom; keep it bounded to cap runaway loops/cost.
+MAX_TOOL_ITERATIONS = int(os.getenv("MAX_TOOL_ITERATIONS", "20"))
+
 # ──────────────────────────────────────────────
 # Context management
 # ──────────────────────────────────────────────

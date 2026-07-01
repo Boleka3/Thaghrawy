@@ -229,40 +229,6 @@ document.getElementById("generate-reports-btn").addEventListener("click", async 
   }
 });
 
-function flashHint(id) {
-  const el = document.getElementById(id);
-  if (!el) return;
-  el.classList.add("hint-active");
-  setTimeout(() => el.classList.remove("hint-active"), 300);
-}
-
-document.addEventListener("keydown", (e) => {
-  if (!e.altKey || e.ctrlKey || e.metaKey) return;
-  switch (e.code) {
-    case "KeyN":
-      e.preventDefault();
-      flashHint("hint-n");
-      document.getElementById("new-engagement-name").focus();
-      break;
-    case "KeyA":
-      e.preventDefault();
-      flashHint("hint-f");
-      document.getElementById("add-finding-btn").click();
-      break;
-    case "KeyG":
-      e.preventDefault();
-      flashHint("hint-m");
-      chatInput.focus();
-      chatInput.value = "Search memory for: ";
-      break;
-    case "KeyP":
-      e.preventDefault();
-      flashHint("hint-s");
-      alert("Settings panel coming soon.");
-      break;
-  }
-});
-
 async function checkLlmStatus() {
   const el = document.getElementById("llm-status");
   if (!el) return;
