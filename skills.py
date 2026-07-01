@@ -48,20 +48,30 @@ SKILLS = {
             "Run breadth-first vulnerability scanners against discovered hosts/services "
             "before attempting manual exploitation: nuclei for known CVE/misconfig templates, "
             "nikto for web server issues, testssl for TLS weaknesses, wpscan if the stack is "
-            "WordPress. Cross-reference identified software versions with searchsploit."
+            "WordPress. Cross-reference identified software versions with searchsploit. "
+            "For a broad OWASP Top-10 web sweep in one pass (XSS, SQLi, command exec, file "
+            "handling, SSRF, CRLF), run wapiti against the app root before drilling in."
         ),
-        tools=["nuclei_scan", "nikto_scan", "testssl_scan", "wpscan_scan", "searchsploit_lookup"],
+        tools=[
+            "nuclei_scan", "nikto_scan", "testssl_scan", "wpscan_scan",
+            "wapiti_scan", "searchsploit_lookup",
+        ],
     ),
     "exploit": Skill(
         name="Exploitation",
         prompt=(
             "Only attempt exploitation against in-scope targets with a specific suspected "
             "vulnerability backed by recon/scan evidence - never exploit speculatively. "
-            "sqlmap for confirmed/suspected SQL injection points, hydra for credential "
-            "brute-forcing where lockout policy allows it, searchsploit to check for a public "
-            "PoC for an identified version before reinventing one by hand."
+            "For OWASP A03 Injection: sqlmap for SQL injection points and dalfox for "
+            "reflected/stored/DOM XSS on parameters that reflect input (wapiti's broad sweep "
+            "in the vuln-scan phase also flags command injection and file-handling issues). "
+            "hydra for credential brute-forcing where lockout policy allows it, searchsploit to "
+            "check for a public PoC for an identified version before reinventing one by hand."
         ),
-        tools=["sqlmap_scan", "hydra_bruteforce", "searchsploit_lookup", "shell"],
+        tools=[
+            "sqlmap_scan", "dalfox_scan", "hydra_bruteforce",
+            "searchsploit_lookup", "shell",
+        ],
     ),
     "network_ad": Skill(
         name="Network & Active Directory",

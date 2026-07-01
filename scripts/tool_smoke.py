@@ -28,15 +28,46 @@ import json
 import os
 import sys
 import time
+from dataclasses import dataclass
 from typing import Any, Callable, Optional, Union
 
 import config
 
-TARGET_URL = os.environ.get("SMOKE_TARGET_URL", "http://juice-shop:3000")
-TARGET_HOST = os.environ.get("SMOKE_TARGET_HOST", "juice-shop")
+# Owned local targets, reachable by compose service name from the agent
+# container. juice-shop is a Node SPA on :3000; dvwa is a PHP/Apache app on :80
+# (302-redirects to login.php unauthenticated) - a useful non-SPA contrast.
+_DEFAULT_TARGETS = "juice-shop=http://juice-shop:3000,dvwa=http://dvwa"
+
 # Per-call wall-clock ceiling. The tool wrappers already bound themselves via
 # config.RECON_TIMEOUT; this is only a backstop for a truly wedged binary.
 PER_CALL_TIMEOUT = int(os.environ.get("SMOKE_PER_CALL_TIMEOUT", str(config.RECON_TIMEOUT + 60)))
+
+
+@dataclass
+class Target:
+    name: str   # short label (juice-shop / dvwa)
+    url: str    # full base URL (http://host:port)
+    host: str   # bare hostname for host-oriented scanners
+    port: str   # port as a string for nmap/naabu/masscan/testssl
+
+
+def _parse_targets(spec: str) -> list[Target]:
+    """Parse a 'name=url,name=url' spec into Target objects, deriving host/port
+    from each URL."""
+    import re as _re
+
+    targets = []
+    for chunk in spec.split(","):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        name, _, url = chunk.partition("=")
+        url = (url or name).strip()
+        m = _re.match(r"^\w+://([^/:]+)(?::(\d+))?", url)
+        host = m.group(1) if m else url
+        port = (m.group(2) if m and m.group(2) else "80")
+        targets.append(Target(name=name.strip(), url=url.rstrip("/"), host=host, port=port))
+    return targets
 
 # A tiny wordlist so ffuf/gobuster stay snappy against the local host instead of
 # firing thousands of requests from the default dirb list.
@@ -48,8 +79,6 @@ _WORDLIST_ENTRIES = ["rest", "api", "ftp", "assets", "robots.txt", "sitemap.xml"
 _PLUMBING_SIGNS = (
     "raised:",                    # ToolRegistry caught a Python exception
     "unexpected keyword",         # wrapper signature missing a kwarg
-    "not found on path",          # _common.run_command FileNotFoundError
-    "binary for",                 # same, our own message
     "command not found",
     "no such file or directory",
     "traceback (most recent call",
@@ -65,51 +94,56 @@ _PLUMBING_SIGNS = (
 Profile = tuple[str, Union[dict, Callable[[dict], dict]], str]
 
 
-def _profiles() -> list[Profile]:
+def _profiles(t: Target) -> list[Profile]:
+    """Build the per-target profile matrix. Generic paths/params are used so the
+    same matrix runs against any web target (juice-shop SPA or dvwa PHP app);
+    the goal is plumbing coverage, not target-specific exploitation depth."""
+    url, host, port = t.url, t.host, t.port
     return [
         # ── recon: subdomains / DNS (expected legit-empty on a docker name) ──
-        ("amass_scan", {"domain": TARGET_HOST, "mode": "passive"}, "passive only"),
-        ("subfinder_scan", {"domain": TARGET_HOST}, "no subdomains expected"),
-        ("assetfinder_scan", {"domain": TARGET_HOST}, "no subdomains expected"),
-        ("dnsx_scan", {"target": TARGET_HOST}, "resolve docker name"),
-        ("whois_lookup", {"domain": TARGET_HOST}, "no whois for docker name"),
+        ("amass_scan", {"domain": host, "mode": "passive"}, "passive only"),
+        ("subfinder_scan", {"domain": host}, "no subdomains expected"),
+        ("assetfinder_scan", {"domain": host}, "no subdomains expected"),
+        ("dnsx_scan", {"target": host}, "resolve docker name"),
+        ("whois_lookup", {"domain": host}, "no whois for docker name"),
         # ── recon: web/host probing ─────────────────────────────────────────
-        ("httpx_scan", {"domains": [f"{TARGET_HOST}:3000"]}, "list arg"),
-        ("httpx_scan", {"domains": f"{TARGET_HOST}:3000, {TARGET_HOST}"}, "comma-string arg (LLM-style)"),
-        ("web_tech_detect", {"target": TARGET_URL}, "whatweb"),
-        ("wafw00f_scan", {"target": TARGET_URL}, "waf fingerprint"),
-        ("katana_crawl", {"target": TARGET_URL, "depth": 1}, "shallow crawl"),
-        ("nuclei_scan", {"target": TARGET_URL, "tags": "tech"}, "tech templates only"),
-        ("ffuf_fuzz", {"url": f"{TARGET_URL}/FUZZ", "wordlist": _SMOKE_WORDLIST}, "tiny wordlist"),
-        ("gobuster_scan", {"mode": "dir", "target": TARGET_URL, "wordlist": _SMOKE_WORDLIST}, "tiny wordlist"),
-        ("arjun_scan", {"url": f"{TARGET_URL}/rest/products/search", "method": "GET"}, "param discovery"),
+        ("httpx_scan", {"domains": [f"{host}:{port}"]}, "list arg"),
+        ("httpx_scan", {"domains": f"{host}:{port}, {host}"}, "comma-string arg (LLM-style)"),
+        ("web_tech_detect", {"target": url}, "whatweb"),
+        ("wafw00f_scan", {"target": url}, "waf fingerprint"),
+        ("katana_crawl", {"target": url, "depth": 1}, "shallow crawl"),
+        ("nuclei_scan", {"target": url, "tags": "tech"}, "tech templates only"),
+        ("ffuf_fuzz", {"url": f"{url}/FUZZ", "wordlist": _SMOKE_WORDLIST}, "tiny wordlist"),
+        ("gobuster_scan", {"mode": "dir", "target": url, "wordlist": _SMOKE_WORDLIST}, "tiny wordlist"),
+        ("arjun_scan", {"url": f"{url}/", "method": "GET"}, "param discovery"),
         # ── recon: ports ────────────────────────────────────────────────────
-        ("nmap_scan", {"target": TARGET_HOST, "ports": "3000"}, "explicit open port"),
-        ("nmap_scan", {"target": f"{TARGET_URL}/x", "top_ports": "100"}, "URL-strip + top_ports (LLM-style)"),
-        ("naabu_scan", {"target": TARGET_HOST, "top_ports": "100"}, "top ports"),
-        ("masscan_scan", {"target": TARGET_HOST, "ports": "3000"}, "needs raw sockets"),
-        ("masscan_scan", {"target": TARGET_HOST, "top_ports": "3000"}, "top_ports alias (LLM-style)"),
+        ("nmap_scan", {"target": host, "ports": port}, "explicit open port"),
+        ("nmap_scan", {"target": f"{url}/x", "top_ports": "100"}, "URL-strip + top_ports (LLM-style)"),
+        ("naabu_scan", {"target": host, "top_ports": "100"}, "top ports"),
+        ("masscan_scan", {"target": host, "ports": port}, "needs raw sockets"),
+        ("masscan_scan", {"target": host, "top_ports": port}, "top_ports alias (LLM-style)"),
         # ── recon: N/A-for-target (must fail CLEANLY, not crash) ────────────
-        ("testssl_scan", {"target": f"{TARGET_HOST}:3000"}, "plain http, no TLS"),
-        ("wpscan_scan", {"target": TARGET_URL}, "not WordPress"),
-        ("enum4linux_scan", {"target": TARGET_HOST}, "no SMB"),
-        ("searchsploit_lookup", {"query": "juice shop"}, "offline exploitdb"),
+        ("testssl_scan", {"target": f"{host}:{port}"}, "plain http, no TLS"),
+        ("wpscan_scan", {"target": url}, "not WordPress"),
+        ("enum4linux_scan", {"target": host}, "no SMB"),
+        ("searchsploit_lookup", {"query": "apache"}, "offline exploitdb"),
         # ── recon: kill-chain probes ────────────────────────────────────────
-        ("upload_test", {"url": f"{TARGET_URL}/api/Users"}, "upload probe"),
-        ("ssrf_test", {"url": f"{TARGET_URL}/redirect?to=test", "param": "to"}, "ssrf probe"),
+        ("upload_test", {"url": f"{url}/"}, "upload probe"),
+        ("ssrf_test", {"url": f"{url}/?url=http://127.0.0.1", "param": "url"}, "ssrf probe"),
         # ── recon: workspace utilities (chained off produced files) ─────────
         ("list_workspace", {}, "list produced files"),
         ("read_file", lambda ctx: {"filename": ctx.get("produced_file", "_smoke_wordlist.txt")},
          "read a returned workspace path"),
         ("grep_workspace", {"pattern": "http", "filename": ""}, "grep across workspace"),
         # ── platform tools ──────────────────────────────────────────────────
-        ("http_request", {"url": TARGET_URL, "method": "GET"}, "generic GET"),
-        ("parse_tool_output", {"tool_name": "nmap", "raw_output": "3000/tcp open http"}, "output filter"),
+        ("http_request", {"url": url, "method": "GET"}, "generic GET"),
+        ("parse_tool_output", {"tool_name": "nmap", "raw_output": f"{port}/tcp open http"}, "output filter"),
+        ("shell", {"command": "id"}, "guardrails + logging"),
         ("search_memory", {"query": "sql injection", "top_k": 2}, "semantic recall"),
         ("save_finding", lambda ctx: {"finding": {
             "title": "smoke-test finding", "severity": "info", "vuln_type": "smoke",
             "description": "harness self-test", "reproduction_steps": "n/a",
-            "technique_used": "smoke", "target": TARGET_URL,
+            "technique_used": "smoke", "target": url,
             "engagement_id": ctx["engagement_id"], "tags": ["smoke"],
         }}, "persist a finding"),
         ("save_technique", lambda ctx: {"technique": {
@@ -119,10 +153,12 @@ def _profiles() -> list[Profile]:
         }}, "persist a technique"),
         ("load_engagement_context", lambda ctx: {"engagement_id": ctx["engagement_id"]}, "reload findings"),
         ("generate_report", lambda ctx: {"engagement_id": ctx["engagement_id"]}, "build both reports"),
-        # ── exploit tools (bounded; owned target) ───────────────────────────
-        ("sqlmap_scan", {"url": f"{TARGET_URL}/rest/products/search?q=test", "batch": True}, "one param"),
-        ("nikto_scan", {"target": TARGET_URL}, "quick web scan"),
-        ("hydra_bruteforce", {"target": TARGET_HOST, "service": "http-get", "user": "admin",
+        # ── exploit tools (bounded; owned target) — incl. OWASP A03 additions ─
+        ("sqlmap_scan", {"url": f"{url}/?id=1", "batch": True}, "SQLi, one param"),
+        ("dalfox_scan", {"url": f"{url}/?q=test"}, "XSS (A03)"),
+        ("wapiti_scan", {"url": f"{url}/", "modules": "xss,sql"}, "broad OWASP web sweep"),
+        ("nikto_scan", {"target": url}, "quick web scan"),
+        ("hydra_bruteforce", {"target": host, "service": "http-get", "user": "admin",
                               "wordlist": _SMOKE_WORDLIST}, "tiny wordlist"),
         ("linux_privesc_check", {}, "local recon in container"),
         ("credential_search", {}, "scan workspace for secrets"),
@@ -176,6 +212,12 @@ def classify(result: Any) -> tuple[str, str]:
     err = str(parsed.get("error", "") or "")
     low = err.lower()
 
+    # A binary that isn't on PATH is a *deployment* gap (tool not installed in
+    # this image), not a wrapper plumbing bug - surface it distinctly so an
+    # optional/release-installed tool pending a rebuild doesn't fail the gate.
+    if "not found on path" in low or low.startswith("binary for"):
+        return "MISSING", err
+
     if any(sign in low for sign in _PLUMBING_SIGNS):
         return "BUG", err
 
@@ -198,29 +240,41 @@ def classify(result: Any) -> tuple[str, str]:
     return "OK", _summary(parsed)
 
 
+# ── skills coverage ─────────────────────────────────────────────────────────
+
+def _check_skills_coverage(registry) -> tuple[list[str], list[str]]:
+    """Cross-check skills.py's methodology against the live registry. A skill
+    that names a non-registered tool is a real bug (the system prompt tells the
+    model to call something that doesn't exist). Returns (broken_refs,
+    tools_in_no_skill)."""
+    from skills import SKILLS
+
+    registered = set(registry.names())
+    referenced: set[str] = set()
+    broken: list[str] = []
+    for key, skill in SKILLS.items():
+        for tool in skill.tools:
+            referenced.add(tool)
+            if tool not in registered:
+                broken.append(f"{key} -> {tool}")
+    unreferenced = sorted(registered - referenced)
+    return broken, unreferenced
+
+
 # ── driver ──────────────────────────────────────────────────────────────────
 
-async def _run() -> int:
-    os.makedirs(config.WORKSPACE_DIR, exist_ok=True)
-    with open(_SMOKE_WORDLIST, "w") as fh:
-        fh.write("\n".join(_WORDLIST_ENTRIES) + "\n")
-
-    from core.tools import build_default_registry
+async def _run_target(registry, target: Target) -> list[tuple[str, str, str, float, str]]:
     from engagements.manager import EngagementManager
-    from memory.store import MemoryStore
 
-    memory = MemoryStore()
     engagement = EngagementManager().create(
-        name="tool-smoke", target=TARGET_URL, scope=TARGET_URL
+        name=f"tool-smoke-{target.name}", target=target.url, scope=target.url
     )
     os.environ["THAGHRAWY_ENGAGEMENT_ID"] = engagement.id
-    registry = build_default_registry(memory, engagement.id, include_exploit_tools=True)
-
     ctx: dict[str, Any] = {"engagement_id": engagement.id, "produced_file": ""}
     rows: list[tuple[str, str, str, float, str]] = []
 
-    print(f"# tool-smoke against {TARGET_URL} (engagement {engagement.id[:8]})\n")
-    for name, arg_spec, note in _profiles():
+    print(f"\n## {target.name}  ({target.url})  engagement {engagement.id[:8]}\n")
+    for name, arg_spec, note in _profiles(target):
         args = arg_spec(ctx) if callable(arg_spec) else dict(arg_spec)
         start = time.monotonic()
         try:
@@ -237,29 +291,80 @@ async def _run() -> int:
 
         rows.append((name, verdict, note, elapsed, detail))
         print(f"[{verdict:<7}] {name:<22} {elapsed:6.1f}s  {note}")
-        if verdict in ("BUG", "REVIEW", "FAILED", "ERR", "TIMEOUT"):
+        if verdict in ("BUG", "MISSING", "REVIEW", "FAILED", "ERR", "TIMEOUT"):
             print(f"          └─ {detail}")
+    return rows
+
+
+async def _run(targets: list[Target]) -> int:
+    os.makedirs(config.WORKSPACE_DIR, exist_ok=True)
+    with open(_SMOKE_WORDLIST, "w") as fh:
+        fh.write("\n".join(_WORDLIST_ENTRIES) + "\n")
+
+    from core.tools import build_default_registry
+    from memory.store import MemoryStore
+
+    memory = MemoryStore()
+    # One full registry (all tools) drives every target; a throwaway engagement
+    # id is fine here since per-target engagements are created in _run_target.
+    registry = build_default_registry(memory, "tool-smoke", include_exploit_tools=True)
+
+    print(f"# tool-smoke — {len(targets)} target(s): {', '.join(t.name for t in targets)}")
+
+    all_rows: list[tuple[str, str, str, float, str]] = []
+    per_target_bugs: dict[str, int] = {}
+    for target in targets:
+        rows = await _run_target(registry, target)
+        all_rows += rows
+        per_target_bugs[target.name] = sum(1 for r in rows if r[1] == "BUG")
+
+    # ── skills coverage ──
+    broken, unreferenced = _check_skills_coverage(registry)
+    print("\n## Skills coverage (skills.py ↔ registry)\n")
+    if broken:
+        print("  BROKEN skill references (tool named in a skill but NOT registered):")
+        for b in broken:
+            print(f"    - {b}")
+    else:
+        print("  All skill tool references resolve to a registered tool ✓")
+    if unreferenced:
+        print(f"  Registered tools in no skill (visibility gap): {', '.join(unreferenced)}")
 
     # ── summary ──
-    bugs = [r for r in rows if r[1] == "BUG"]
-    review = [r for r in rows if r[1] in ("REVIEW", "FAILED", "ERR", "TIMEOUT")]
-    ok = [r for r in rows if r[1] in ("OK", "BLOCKED")]
+    bugs = [r for r in all_rows if r[1] == "BUG"]
+    missing = sorted({r[0] for r in all_rows if r[1] == "MISSING"})
+    review = [r for r in all_rows if r[1] in ("REVIEW", "FAILED", "ERR", "TIMEOUT")]
+    ok = [r for r in all_rows if r[1] in ("OK", "BLOCKED")]
     print("\n" + "=" * 70)
-    print(f"  OK/BLOCKED: {len(ok)}   REVIEW: {len(review)}   BUG: {len(bugs)}   (total {len(rows)})")
+    for name, n in per_target_bugs.items():
+        print(f"  {name}: {n} BUG(s)")
+    print(f"  TOTAL  OK/BLOCKED: {len(ok)}   REVIEW: {len(review)}   MISSING: {len(missing)}   "
+          f"BUG: {len(bugs)}   SKILLS-BROKEN: {len(broken)}   (calls {len(all_rows)})")
     if bugs:
         print("\n  PLUMBING BUGS (fix these):")
         for name, _, note, _, detail in bugs:
             print(f"    - {name} [{note}]: {detail}")
+    if missing:
+        print(f"\n  NOT INSTALLED in this image (activate on rebuild): {', '.join(missing)}")
     if review:
         print("\n  NEEDS MANUAL REVIEW (may be benign N/A-target failures):")
         for name, verdict, note, _, detail in review:
             print(f"    - {name} [{verdict}] {note}: {detail}")
     print("=" * 70)
-    return 1 if bugs else 0
+    return 1 if (bugs or broken) else 0
 
 
 def main() -> int:
-    return asyncio.run(_run())
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Live tool-smoke harness")
+    parser.add_argument(
+        "--targets", default=os.environ.get("SMOKE_TARGETS", _DEFAULT_TARGETS),
+        help="Comma-separated name=url list (default: juice-shop + dvwa)",
+    )
+    args = parser.parse_args()
+    targets = _parse_targets(args.targets)
+    return asyncio.run(_run(targets))
 
 
 if __name__ == "__main__":

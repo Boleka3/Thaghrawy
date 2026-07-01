@@ -102,7 +102,9 @@ Empty results on an N/A target (no subdomains/TLS/SMB) are expected, not bugs.
   `nmap_scan`, `masscan_scan`, `wpscan_scan`, `testssl_scan`, `wafw00f_scan`,
   `searchsploit_lookup`, `arjun_scan`, `enum4linux_scan` — recon / vuln scanning
 - `list_workspace`, `read_file`, `grep_workspace` — recon workspace utilities
-- `sqlmap_scan`, `nikto_scan`, `hydra_bruteforce` — exploitation (dangerous=True)
+- `sqlmap_scan`, `nikto_scan`, `hydra_bruteforce`, `dalfox_scan` (XSS),
+  `wapiti_scan` (broad OWASP web sweep: XSS/SQLi/command-exec/file/SSRF) —
+  exploitation (dangerous=True)
 - `generate_report(engagement_id)` — builds both a technical report (full evidence/
   reproduction steps, for developers) and an executive report (business impact, for
   management) from the engagement's saved findings via `reporting/builder.py` +
