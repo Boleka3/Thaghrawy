@@ -268,6 +268,20 @@ def test_http_request_signature_exists():
     assert callable(http_request)
 
 
+def test_http_request_returns_structured_error_on_connection_failure(monkeypatch):
+    # A dead target / DNS miss must come back as a structured error, not a raised
+    # exception the registry would surface as a "raised: ..." plumbing bug.
+    import httpx
+
+    def boom(self, *a, **k):
+        raise httpx.ConnectError("Name or service not known")
+
+    monkeypatch.setattr(httpx.Client, "request", boom)
+    result = http_request(url="http://dead-target:9999", method="GET")
+    assert result["status"] == "error"
+    assert "failed" in result["error"]
+
+
 # ── registry wiring ──
 
 
