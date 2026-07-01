@@ -41,6 +41,39 @@ matching torch wheel index (`cuda`/`rocm`) via the `COMPUTE_BACKEND` build arg a
 GPU devices through to the container. Inside the compose network the agent reaches DVWA at
 `http://dvwa:80` and Juice Shop at `http://juice-shop:3000`.
 
+### Connectivity & LLM endpoints
+
+Connectivity is fully config-driven — the container reaches whatever you point it at
+through `.env`, so any deployer can bring their own LLM and targets.
+
+**External targets & cloud LLM APIs work with no extra setup.** The container has outbound
+internet egress via the default bridge network, so cloud LLM APIs (Anthropic/OpenAI/…) and
+external scan targets (e.g. a HackerOne scope) are reachable out of the box. Raw-socket
+scans (`nmap -sS`, `masscan`) work because the container runs as root with the default
+`NET_RAW` capability; on a hardened host that strips it, uncomment `cap_add: [NET_RAW,
+NET_ADMIN]` in `docker-compose.yml`.
+
+**LLM endpoint** — set `OPENAI_BASE_URL` in `.env` to match where your LLM lives:
+
+| Where the LLM runs | `OPENAI_BASE_URL` |
+|---|---|
+| Cloud API (OpenAI) | *(leave empty)* |
+| Cloud-compatible (OpenRouter, …) | `https://openrouter.ai/api/v1` |
+| Local, on **this** Docker host (LM Studio/Ollama) | `http://host.docker.internal:1234/v1` |
+| Local, on **another LAN** machine | `http://<lan-ip>:1234/v1` |
+| A sibling compose service | `http://<service-name>:<port>/v1` |
+
+The base compose maps `host.docker.internal` to the Docker host (requires Docker Engine
+≥ 20.10), so a local LLM on the same machine is reachable regardless of that host's IP —
+just **bind the LLM server to `0.0.0.0`, not `127.0.0.1`**. For Ollama use the same host with
+`OLLAMA_BASE_URL=http://host.docker.internal:11434`. Verify from inside the container:
+
+```bash
+docker compose exec agent sh -c 'curl -s https://example.com -o /dev/null -w "egress %{http_code}\n"'
+docker compose exec agent sh -c 'curl -s http://host.docker.internal:1234/v1/models'
+curl http://localhost:8000/api/lm-studio/status   # 200 + "loaded": true when the LLM is reachable
+```
+
 ## Architecture
 
 ```
