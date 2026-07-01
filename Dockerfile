@@ -15,6 +15,13 @@ RUN for i in 1 2 3; do \
     done && \
     rm -rf /var/lib/apt/lists/*
 
+# Kali's /usr/bin/amass is a wrapper script that runs `sudo libpostal_data download all`
+# when /usr/share/libpostal/transliteration is missing, which fails in the container with
+# "sudo: libpostal_data: command not found" and aborts every amass run. amass v4 doesn't
+# need libpostal for passive/active enum, so point PATH at the real binary (/usr/local/bin
+# is ahead of /usr/bin in _common.py's SUBPROCESS_ENV), bypassing the wrapper entirely.
+RUN [ -x /usr/lib/amass/amass ] && ln -sf /usr/lib/amass/amass /usr/local/bin/amass || true
+
 # katana is not in Kali apt — install from GitHub releases. The release asset
 # name carries the version (katana_<ver>_linux_amd64.zip), so resolve the
 # latest asset URL via the GitHub API rather than a fixed /latest/download URL

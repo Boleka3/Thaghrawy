@@ -35,8 +35,22 @@ def test_httpx_scan_with_existing_workspace_file(fake_subprocess, tmp_path):
     result = httpx_scan(file="domains.txt")
     assert result["status"] == "success"
     cmd = fake_subprocess.last_call
-    assert cmd[0] == "httpx"
+    # ProjectDiscovery binary is `httpx-toolkit` on Kali/Docker, `httpx` on bare metal.
+    assert cmd[0] in ("httpx", "httpx-toolkit")
     assert cmd[cmd.index("-l") + 1] == str(tmp_path / "domains.txt")
+
+
+def test_httpx_scan_prefers_projectdiscovery_binary(fake_subprocess, tmp_path, monkeypatch):
+    # When httpx-toolkit exists it must be chosen over the venv Python `httpx`
+    # CLI (which has no -l and errored in the nisc.coop run).
+    (tmp_path / "domains.txt").write_text("example.com\n")
+    fake_subprocess.stdout = _SAMPLE_STDOUT
+    monkeypatch.setattr(
+        httpx_module.shutil, "which",
+        lambda name: "/usr/bin/httpx-toolkit" if name == "httpx-toolkit" else None,
+    )
+    httpx_scan(file="domains.txt")
+    assert fake_subprocess.last_call[0].endswith("httpx-toolkit")
 
 
 def test_httpx_scan_with_inline_domains_writes_workspace_file(fake_subprocess, tmp_path):

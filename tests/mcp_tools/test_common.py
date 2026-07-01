@@ -1,7 +1,13 @@
 import subprocess
 
 from mcp_servers.tools import _common
-from mcp_servers.tools._common import run_command, safe_filename, sanitize_input, save_to_workspace
+from mcp_servers.tools._common import (
+    run_command,
+    safe_filename,
+    sanitize_input,
+    save_to_workspace,
+    strip_url,
+)
 
 
 class _FakeCompletedProcess:
@@ -17,6 +23,17 @@ def test_sanitize_input_strips_shell_metacharacters():
 
 def test_sanitize_input_strips_surrounding_whitespace():
     assert sanitize_input("  example.com  ") == "example.com"
+
+
+def test_strip_url_drops_scheme_and_path():
+    assert strip_url("http://nisc.coop/some/path") == "nisc.coop"
+    assert strip_url("https://nisc.coop/") == "nisc.coop"
+
+
+def test_strip_url_leaves_bare_host_and_cidr_untouched():
+    assert strip_url("nisc.coop") == "nisc.coop"
+    assert strip_url("10.0.0.0/24") == "10.0.0.0/24"  # CIDR mask must survive
+    assert strip_url("192.168.1.1") == "192.168.1.1"
 
 
 def test_sanitize_input_handles_empty_and_none():
