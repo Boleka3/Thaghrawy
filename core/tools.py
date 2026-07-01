@@ -273,8 +273,15 @@ def http_request(
     """Make an HTTP request and return status code, headers, and body (truncated)."""
     import httpx
 
-    with httpx.Client(timeout=30, follow_redirects=True) as client:
-        response = client.request(method.upper(), url, headers=headers or {}, content=body)
+    # Connection/timeout failures (target down, DNS miss, TLS error) are an
+    # expected outcome when probing, not a tool bug - return a structured error
+    # so the agent gets an actionable result instead of the registry surfacing a
+    # raw "raised: ..." exception.
+    try:
+        with httpx.Client(timeout=30, follow_redirects=True) as client:
+            response = client.request(method.upper(), url, headers=headers or {}, content=body)
+    except httpx.HTTPError as exc:
+        return {"status": "error", "error": f"HTTP request to {url} failed: {exc}"}
     return {"status_code": response.status_code, "headers": dict(response.headers), "body": response.text[:4000]}
 
 
