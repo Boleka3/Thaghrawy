@@ -1,0 +1,15 @@
+# AMD ROCm GPU override — layer on top of the base compose file:
+#   docker compose -f docker-compose.yml -f docker-compose.gpu-amd.yml up --build
+# Requires the ROCm kernel driver installed on the host.
+services:
+  agent:
+    build:
+      args:
+        COMPUTE_BACKEND: rocm
+    devices:
+      - /dev/kfd
+      - /dev/dri
+    group_add:
+      - video
+    security_opt:
+      - seccomp:unconfined
