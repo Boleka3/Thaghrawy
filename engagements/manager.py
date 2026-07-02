@@ -26,6 +26,9 @@ class EngagementManager:
     def _log_path(self, engagement_id: str) -> str:
         return os.path.join(self.base_dir, f"{engagement_id}.md")
 
+    def _trajectory_path(self, engagement_id: str) -> str:
+        return os.path.join(self.base_dir, f"{engagement_id}.trajectory.jsonl")
+
     def create(
         self,
         name: str,
@@ -140,9 +143,49 @@ class EngagementManager:
         with open(path) as f:
             return f.read()
 
+    # ── structured HITL trajectory (machine-readable; feeds training export) ──
+
+    def append_trajectory(self, engagement_id: str, record: dict[str, Any]) -> None:
+        """Append one human-decision record (proposed tool call + verdict +
+        outcome) as a JSONL line. Distinct from the freeform markdown log.
+        Best-effort: never raise into the agent turn."""
+        try:
+            with open(self._trajectory_path(engagement_id), "a") as f:
+                f.write(json.dumps(record, default=str) + "\n")
+        except OSError:
+            logger.warning("failed to append trajectory for %s", engagement_id)
+
+    def read_trajectory(self, engagement_id: str) -> list[dict[str, Any]]:
+        path = self._trajectory_path(engagement_id)
+        if not os.path.isfile(path):
+            return []
+        records = []
+        with open(path) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    records.append(json.loads(line))
+                except ValueError:
+                    continue
+        return records
+
+    def all_trajectories(self) -> list[dict[str, Any]]:
+        """Every decision record across all engagements (for training export)."""
+        records: list[dict[str, Any]] = []
+        for fname in sorted(os.listdir(self.base_dir)):
+            if fname.endswith(".trajectory.jsonl"):
+                records.extend(self.read_trajectory(fname[: -len(".trajectory.jsonl")]))
+        return records
+
     def delete(self, engagement_id: str) -> bool:
         deleted = False
-        for path in (self._path(engagement_id), self._log_path(engagement_id)):
+        for path in (
+            self._path(engagement_id),
+            self._log_path(engagement_id),
+            self._trajectory_path(engagement_id),
+        ):
             if os.path.isfile(path):
                 os.remove(path)
                 deleted = True

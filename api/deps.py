@@ -34,12 +34,25 @@ def _get_or_create_agent(state, engagement_id: str) -> PentestAgent:
         phase = engagement.phase if engagement else "enumeration"
         registry = build_filtered_registry(mode, state.memory, engagement_id)
         control = AgentControl(phase=phase)
+        manager = state.engagements
+
+        def _capture_decision(record: dict) -> None:
+            # Persist the proposed-call + human-verdict as a training trajectory.
+            # Trim the tool result so a huge scan dump doesn't bloat the JSONL.
+            result = record.get("result")
+            if not isinstance(result, (str, int, float, bool, type(None))):
+                result = str(result)
+            if isinstance(result, str) and len(result) > 2000:
+                result = result[:2000] + "…[truncated]"
+            manager.append_trajectory(engagement_id, {**record, "result": result})
+
         agents[engagement_id] = PentestAgent(
             engagement_id=engagement_id,
             target=target,
             memory=state.memory,
             registry=registry,
-            engagement_manager=state.engagements,
+            engagement_manager=manager,
             control=control,
+            on_decision=_capture_decision,
         )
     return agents[engagement_id]
