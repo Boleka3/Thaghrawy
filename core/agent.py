@@ -86,6 +86,59 @@ class PentestAgent:
         except Exception:
             pass
 
+    # Deterministic recon probes run during autonomous enumeration. Kept small
+    # and reliable: nuclei is the richest structured source of easy misconfig /
+    # CVE / exposure findings and is a recon-tier tool (present even in
+    # recon_only registries).
+    ENUMERATION_PROBES: list[tuple[str, dict[str, Any]]] = [
+        ("nuclei_scan", {}),
+    ]
+
+    async def enumerate(self) -> AsyncIterator[dict[str, Any]]:
+        """Autonomous enumeration phase: run recon probes against the target and
+        auto-ingest the easy structured findings (no LLM, no approvals), then
+        hand off to the human for collaboration. Yields tool_call / tool_result /
+        finding_saved / handoff / done events."""
+        from core.finding_drafts import finding_from_tool_result
+        from core.tools import persist_finding
+
+        yield {"type": "phase", "phase": "enumeration"}
+        saved = 0
+        for tool_name, extra in self.ENUMERATION_PROBES:
+            if self.registry.get(tool_name) is None:
+                continue
+            args = {"target": self.target, **extra}
+            yield {"type": "tool_call", "tool": tool_name, "command": args}
+            result = await self.registry.execute(tool_name, args)
+            yield {"type": "tool_result", "tool": tool_name, "output": result}
+            for finding in finding_from_tool_result(tool_name, result, self.engagement_id, self.target):
+                try:
+                    persist_finding(self.memory, finding, self.engagement_manager)
+                    saved += 1
+                    yield {"type": "finding_saved", "finding": finding.model_dump()}
+                except Exception as e:  # one bad finding shouldn't abort enumeration
+                    yield {"type": "error", "message": f"auto-ingest failed: {e}"}
+
+        # Flip to the collaboration phase so the human takes over with approvals on.
+        if self.control is not None:
+            self.control.set_phase("collaboration")
+        if self.engagement_manager is not None:
+            try:
+                self.engagement_manager.update(self.engagement_id, phase="collaboration")
+            except Exception:
+                pass
+        yield {
+            "type": "handoff",
+            "findings_saved": saved,
+            "phase": "collaboration",
+            "message": (
+                f"Autonomous enumeration complete — {saved} finding(s) auto-ingested. "
+                "Handing off: review them, then drive the exploitation phase together "
+                "(every tool call now asks for your approval). Type /help for commands."
+            ),
+        }
+        yield {"type": "done", "steps": len(self.ENUMERATION_PROBES)}
+
     async def chat(
         self, user_input: str, control: Optional[AgentControl] = None
     ) -> AsyncIterator[dict[str, Any]]:
