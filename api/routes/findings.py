@@ -39,7 +39,9 @@ class UpdateFindingRequest(BaseModel):
 
 class PromoteRequest(BaseModel):
     tool: str
-    result: dict[str, Any]
+    # dict, or the JSON string the MCP tool wrappers emit — finding_from_tool_result
+    # normalizes both.
+    result: Any
     engagement_id: str
     target: str = ""
 

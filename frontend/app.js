@@ -264,8 +264,9 @@ function connectSocket() {
       case "tool_result": {
         const outText = typeof msg.output === "string" ? msg.output : JSON.stringify(msg.output);
         const line = appendLine("tool-result", msg.source === "human" ? "OUT(you)" : "OUT", outText);
-        // Offer promotion to a finding for structured scanner output.
-        if (msg.output && typeof msg.output === "object") {
+        // Offer promotion to a finding; the backend derives drafts (or none) from
+        // the raw output, which for scanner tools is a JSON string.
+        if (msg.output != null) {
           const b = document.createElement("button");
           b.className = "mini promote";
           b.textContent = "→finding";
