@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Optional
 
 import config
 from core.context import ContextManager
-from core.control import APPROVE, EDIT, REJECT, STOP, AgentControl
+from core.control import EDIT, REJECT, STOP, AgentControl
 from core.llm import BaseLLMProvider, get_provider
 from core.tools import ToolRegistry, build_default_registry
 from memory.store import MemoryStore

@@ -14,6 +14,7 @@ def _testssl_binary() -> str:
     whichever exists so we don't FileNotFoundError on a box that only has one."""
     return shutil.which("testssl.sh") or shutil.which("testssl") or "testssl.sh"
 
+
 _VULN_FLAGS = (
     "heartbleed", "ccs_injection", "robot", "secure_renego", "secure_client_renego",
     "crime", "breach", "poodle_ssl", "freak", "drown", "logjam", "beast", "lucky13", "rc4",
