@@ -69,6 +69,7 @@ def _parse_targets(spec: str) -> list[Target]:
         targets.append(Target(name=name.strip(), url=url.rstrip("/"), host=host, port=port))
     return targets
 
+
 # A tiny wordlist so ffuf/gobuster stay snappy against the local host instead of
 # firing thousands of requests from the default dirb list.
 _SMOKE_WORDLIST = os.path.join(config.WORKSPACE_DIR, "_smoke_wordlist.txt")
