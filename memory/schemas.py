@@ -47,6 +47,11 @@ class Engagement(BaseModel):
     tech_stack: list[str] = Field(default_factory=list)
     notes: str = ""
     analysis_mode: Literal["recon_only", "full_analysis"] = "full_analysis"
+    # Human-in-the-loop workflow phase. An engagement starts in `enumeration`
+    # (the agent autonomously recons + auto-ingests easy findings, no approvals),
+    # flips to `collaboration` at handoff (human + agent iterate, tool calls gated
+    # for approval), then `reporting` once both reports are generated.
+    phase: Literal["enumeration", "collaboration", "reporting"] = "enumeration"
     # Agent-effort tracking for the "Average Steps per Task" (AST) metric:
     # total_steps is the cumulative count of tool executions across all turns;
     # turn_count is the number of user turns (tasks) driven through the agent.

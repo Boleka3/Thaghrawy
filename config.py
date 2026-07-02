@@ -67,4 +67,14 @@ DANGEROUS_COMMANDS_REQUIRE_CONFIRM = os.getenv(
     "DANGEROUS_COMMANDS_REQUIRE_CONFIRM", "true"
 ).lower() == "true"
 
+# ──────────────────────────────────────────────
+# Human-in-the-loop
+# ──────────────────────────────────────────────
+# Which tool calls pause for human approval during the COLLABORATION phase:
+#   all       - every tool call (default; maximum oversight)
+#   dangerous - only tools flagged dangerous=True (exploit tools + shell)
+#   off        - never gate (fully autonomous even when collaborating)
+# The enumeration phase is always approval-free; see core/control.py.
+HUMAN_APPROVAL_MODE = os.getenv("HUMAN_APPROVAL_MODE", "all").lower()
+
 DEFAULT_TARGET = os.getenv("TARGET", "")
