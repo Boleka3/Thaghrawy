@@ -8,13 +8,13 @@ memory.
 
 ## Quickstart (Docker)
 
-**Docker Compose is the primary, supported way to run Thaghrawy.** It brings up the
-agent together with the DVWA and Juice Shop practice targets, with all ~29 security
-tools already installed in the image — no manual tool setup required.
+**Docker Compose is the primary, supported way to run Thaghrawy.** This builds and
+starts just the agent harness — with all ~29 security tools already installed in the
+image, no manual tool setup required. Point it at your own authorized scope.
 
 ```bash
 cp .env.example .env        # fill in your LLM provider's endpoint / API key
-docker compose up --build   # builds the image, starts agent + targets
+docker compose up --build   # builds the image, starts only the Thaghrawy agent
 ```
 
 Then open `http://localhost:8000` for the dark hacker-themed UI: pick or create
@@ -23,8 +23,19 @@ collect on the right. The WebSocket at `/ws/chat?engagement_id=...` streams
 `memory_hit` / `tool_call` / `tool_result` / `token` / `finding_saved` / `done` /
 `error` events.
 
-Inside the compose network the agent reaches DVWA at `http://dvwa:80` and Juice
-Shop at `http://juice-shop:3000`.
+### Optional: practice targets
+
+DVWA and OWASP Juice Shop are **not** started by default — they're only useful for
+exercising the agent against known-vulnerable apps. They live behind a `targets`
+Compose profile:
+
+```bash
+docker compose --profile targets up --build   # agent + DVWA + Juice Shop
+```
+
+With the profile up, the agent reaches DVWA at `http://dvwa:80` and Juice Shop at
+`http://juice-shop:3000` on the compose network (set `TARGET` per engagement or in
+`.env`).
 
 ### Choosing a compute backend
 
