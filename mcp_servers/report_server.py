@@ -25,9 +25,11 @@ _PDF_CSS = """
 def render_to_files(content_markdown: str, filename_prefix: str = "pentest_report") -> dict[str, str]:
     """Write `content_markdown` to a timestamped .md file and a matching
     properly-formatted .pdf (markdown -> HTML -> xhtml2pdf) under
-    config.REPORTS_DIR. Returns the paths, or an "error" key on failure."""
-    content_markdown = content_markdown.replace('\\n', '\n').replace('\\"', '"')
+    config.REPORTS_DIR. Returns the paths, or an "error" key on failure.
 
+    The markdown is rendered verbatim. JSON-unescaping (\\n -> newline) is the
+    caller's responsibility at the boundary - doing it here silently corrupted
+    legitimate backslash content in reports."""
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     md_filename = f"{filename_prefix}_{timestamp}.md"
     pdf_filename = f"{filename_prefix}_{timestamp}.pdf"

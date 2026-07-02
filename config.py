@@ -22,6 +22,10 @@ OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3")
 TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.2"))
 MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "4096"))
 
+# Max assistant<->tool round-trips per user turn in the agent ReAct loop. A real
+# multi-subdomain recon needs headroom; keep it bounded to cap runaway loops/cost.
+MAX_TOOL_ITERATIONS = int(os.getenv("MAX_TOOL_ITERATIONS", "20"))
+
 # ──────────────────────────────────────────────
 # Context management
 # ──────────────────────────────────────────────
@@ -62,5 +66,15 @@ RECON_TIMEOUT = int(os.getenv("RECON_TIMEOUT", "180"))
 DANGEROUS_COMMANDS_REQUIRE_CONFIRM = os.getenv(
     "DANGEROUS_COMMANDS_REQUIRE_CONFIRM", "true"
 ).lower() == "true"
+
+# ──────────────────────────────────────────────
+# Human-in-the-loop
+# ──────────────────────────────────────────────
+# Which tool calls pause for human approval during the COLLABORATION phase:
+#   all       - every tool call (default; maximum oversight)
+#   dangerous - only tools flagged dangerous=True (exploit tools + shell)
+#   off        - never gate (fully autonomous even when collaborating)
+# The enumeration phase is always approval-free; see core/control.py.
+HUMAN_APPROVAL_MODE = os.getenv("HUMAN_APPROVAL_MODE", "all").lower()
 
 DEFAULT_TARGET = os.getenv("TARGET", "")

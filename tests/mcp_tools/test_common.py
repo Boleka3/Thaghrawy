@@ -1,7 +1,14 @@
 import subprocess
 
 from mcp_servers.tools import _common
-from mcp_servers.tools._common import run_command, safe_filename, sanitize_input, save_to_workspace
+from mcp_servers.tools._common import (
+    resolve_host,
+    run_command,
+    safe_filename,
+    sanitize_input,
+    save_to_workspace,
+    strip_url,
+)
 
 
 class _FakeCompletedProcess:
@@ -17,6 +24,45 @@ def test_sanitize_input_strips_shell_metacharacters():
 
 def test_sanitize_input_strips_surrounding_whitespace():
     assert sanitize_input("  example.com  ") == "example.com"
+
+
+def test_strip_url_drops_scheme_and_path():
+    assert strip_url("http://nisc.coop/some/path") == "nisc.coop"
+    assert strip_url("https://nisc.coop/") == "nisc.coop"
+
+
+def test_strip_url_leaves_bare_host_and_cidr_untouched():
+    assert strip_url("nisc.coop") == "nisc.coop"
+    assert strip_url("10.0.0.0/24") == "10.0.0.0/24"  # CIDR mask must survive
+    assert strip_url("192.168.1.1") == "192.168.1.1"
+
+
+def test_resolve_host_passes_ip_and_cidr_through_untouched(monkeypatch):
+    # Must NOT resolve - an IP/CIDR is already a valid scanner target and a
+    # gethostbyname call on it would be wrong (and could mangle a CIDR mask).
+    def _should_not_be_called(host):
+        raise AssertionError("gethostbyname must not be called for an IP/CIDR")
+
+    monkeypatch.setattr(_common.socket, "gethostbyname", _should_not_be_called)
+    assert resolve_host("192.168.1.1") == "192.168.1.1"
+    assert resolve_host("10.0.0.0/24") == "10.0.0.0/24"
+
+
+def test_resolve_host_resolves_bare_hostname_to_ip(monkeypatch):
+    monkeypatch.setattr(_common.socket, "gethostbyname", lambda h: "172.19.0.2")
+    assert resolve_host("juice-shop") == "172.19.0.2"
+
+
+def test_resolve_host_falls_back_to_original_on_failure(monkeypatch):
+    def boom(host):
+        raise OSError("name or service not known")
+
+    monkeypatch.setattr(_common.socket, "gethostbyname", boom)
+    assert resolve_host("nonexistent.invalid") == "nonexistent.invalid"
+
+
+def test_resolve_host_empty_string():
+    assert resolve_host("") == ""
 
 
 def test_sanitize_input_handles_empty_and_none():
@@ -122,10 +168,28 @@ def test_run_command_generic_exception(monkeypatch):
     assert result["error"] == "unexpected failure"
 
 
+def test_run_command_logs_executed_command(monkeypatch):
+    import guardrails
+
+    logged = {}
+
+    def fake_log(command, engagement_id, allowed, reason=""):
+        logged["command"] = command
+        logged["allowed"] = allowed
+
+    monkeypatch.setattr(guardrails.Guardrails, "log_shell_command", staticmethod(fake_log))
+    monkeypatch.setattr(_common.subprocess, "run", lambda *a, **k: _FakeCompletedProcess(stdout="ok"))
+
+    run_command(["nmap", "-sV", "target"], "nmap", "target")
+
+    assert logged["command"] == "nmap -sV target"
+    assert logged["allowed"] is True
+
+
 def test_run_command_uses_default_timeout_from_config(monkeypatch):
     captured = {}
 
-    def fake_run(cmd, capture_output, text, timeout):
+    def fake_run(cmd, capture_output, text, timeout, env):
         captured["timeout"] = timeout
         return _FakeCompletedProcess(stdout="ok", returncode=0)
 

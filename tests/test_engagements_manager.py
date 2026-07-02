@@ -1,3 +1,7 @@
+import os
+
+import pytest
+
 from engagements.manager import EngagementManager
 
 
@@ -72,6 +76,57 @@ def test_increment_findings_count(tmp_engagements):
 
 def test_increment_findings_count_unknown_id_returns_none(tmp_engagements):
     assert tmp_engagements.increment_findings_count("does-not-exist") is None
+
+
+def test_record_steps_accumulates_total_and_turns(tmp_engagements):
+    created = tmp_engagements.create(name="X", target="https://x.com")
+    updated = tmp_engagements.record_steps(created.id, 3)
+    assert updated.total_steps == 3
+    assert updated.turn_count == 1
+    updated = tmp_engagements.record_steps(created.id, 5)
+    assert updated.total_steps == 8
+    assert updated.turn_count == 2
+    assert updated.average_steps_per_task == 4.0
+
+
+def test_record_steps_unknown_id_returns_none(tmp_engagements):
+    assert tmp_engagements.record_steps("does-not-exist", 3) is None
+
+
+def test_update_rejects_unknown_field(tmp_engagements):
+    created = tmp_engagements.create(name="X", target="https://x.com")
+    with pytest.raises(ValueError):
+        tmp_engagements.update(created.id, not_a_real_field=1)
+
+
+def test_update_rejects_invalid_value(tmp_engagements):
+    created = tmp_engagements.create(name="X", target="https://x.com")
+    with pytest.raises(ValueError):
+        tmp_engagements.update(created.id, status="bogus-status")
+
+
+def test_get_returns_none_for_corrupt_file(tmp_engagements):
+    created = tmp_engagements.create(name="X", target="https://x.com")
+    with open(tmp_engagements._path(created.id), "w") as f:
+        f.write("{not valid json")
+    assert tmp_engagements.get(created.id) is None
+
+
+def test_list_skips_corrupt_files(tmp_engagements):
+    good = tmp_engagements.create(name="Good", target="https://good.com")
+    bad = tmp_engagements.create(name="Bad", target="https://bad.com")
+    with open(tmp_engagements._path(bad.id), "w") as f:
+        f.write("garbage")
+    listed_ids = [e.id for e in tmp_engagements.list()]
+    assert good.id in listed_ids
+    assert bad.id not in listed_ids
+
+
+def test_save_is_atomic_no_tmp_files_left(tmp_engagements):
+    created = tmp_engagements.create(name="X", target="https://x.com")
+    tmp_engagements.increment_findings_count(created.id)
+    leftovers = [f for f in os.listdir(tmp_engagements.base_dir) if f.endswith(".tmp")]
+    assert leftovers == []
 
 
 def test_append_log_and_read_log(tmp_engagements):

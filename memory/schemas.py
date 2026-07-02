@@ -15,8 +15,10 @@ class Finding(BaseModel):
     engagement_id: str
     date: str
     tags: list[str] = Field(default_factory=list)
-    cvss_score: Optional[float] = None
-    dread_score: Optional[float] = None
+    # CVSS base scores run 0.0-10.0; DREAD is estimated 1-10. Both are bounded
+    # so a malformed agent estimate (e.g. 50 or -3) is rejected at construction.
+    cvss_score: Optional[float] = Field(default=None, ge=0.0, le=10.0)
+    dread_score: Optional[float] = Field(default=None, ge=0.0, le=10.0)
     affected_component: Optional[str] = None
     business_impact: Optional[str] = None
     remediation: Optional[str] = None
@@ -45,3 +47,18 @@ class Engagement(BaseModel):
     tech_stack: list[str] = Field(default_factory=list)
     notes: str = ""
     analysis_mode: Literal["recon_only", "full_analysis"] = "full_analysis"
+    # Human-in-the-loop workflow phase. An engagement starts in `enumeration`
+    # (the agent autonomously recons + auto-ingests easy findings, no approvals),
+    # flips to `collaboration` at handoff (human + agent iterate, tool calls gated
+    # for approval), then `reporting` once both reports are generated.
+    phase: Literal["enumeration", "collaboration", "reporting"] = "enumeration"
+    # Agent-effort tracking for the "Average Steps per Task" (AST) metric:
+    # total_steps is the cumulative count of tool executions across all turns;
+    # turn_count is the number of user turns (tasks) driven through the agent.
+    total_steps: int = 0
+    turn_count: int = 0
+
+    @property
+    def average_steps_per_task(self) -> float:
+        """Mean tool-execution steps per task (lower = fewer rabbit holes)."""
+        return self.total_steps / self.turn_count if self.turn_count else 0.0

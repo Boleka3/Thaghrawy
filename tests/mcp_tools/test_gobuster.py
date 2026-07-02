@@ -24,7 +24,7 @@ def test_gobuster_scan_requires_target(wordlist):
 def test_gobuster_scan_missing_wordlist_returns_error():
     result = gobuster_scan(mode="dir", target="example.com", wordlist="/no/such/file.txt")
     assert result["status"] == "error"
-    assert "Wordlist not found" in result["error"]
+    assert "No wordlist found" in result["error"]
 
 
 def test_gobuster_scan_dir_mode_uses_dash_u_and_status_codes(fake_subprocess, wordlist):
@@ -34,6 +34,17 @@ def test_gobuster_scan_dir_mode_uses_dash_u_and_status_codes(fake_subprocess, wo
     assert cmd[:2] == ["gobuster", "dir"]
     assert "-u" in cmd and cmd[cmd.index("-u") + 1] == "https://example.com"
     assert "-s" in cmd and cmd[cmd.index("-s") + 1] == "200,301"
+    # gobuster >=3.6 errors if -s and the default -b (404) blacklist are both
+    # set; the wrapper clears the blacklist with an empty -b so -s is the sole
+    # filter. Regression guard for the "please set only one" failure.
+    assert "-b" in cmd and cmd[cmd.index("-b") + 1] == ""
+
+
+def test_gobuster_scan_dns_mode_has_no_status_flags(fake_subprocess, wordlist):
+    fake_subprocess.stdout = "Found: api.example.com\n"
+    gobuster_scan(mode="dns", target="example.com", wordlist=wordlist)
+    cmd = fake_subprocess.last_call
+    assert "-s" not in cmd and "-b" not in cmd  # status filters are dir-mode only
 
 
 def test_gobuster_scan_dir_mode_with_extensions(fake_subprocess, wordlist):

@@ -13,7 +13,15 @@ from typing import Optional
 
 from mcp.server.fastmcp import FastMCP
 
-from mcp_servers.tools._common import WORKSPACE_DIR, run_command, sanitize_input
+from mcp_servers.tools._common import (
+    WORKSPACE_DIR,
+    resolve_host,
+    run_command,
+    safe_filename,
+    sanitize_input,
+    save_to_workspace,
+    strip_url,
+)
 from mcp_servers.tools.amass import amass_scan as _amass_scan
 from mcp_servers.tools.subfinder import subfinder_scan as _subfinder_scan
 from mcp_servers.tools.httpx import httpx_scan as _httpx_scan
@@ -119,10 +127,13 @@ async def nmap_scan(
     ports: str = "",
     scan_type: str = "default",
     service_detection: bool = True,
+    top_ports: str = "",
 ) -> str:
     """Scan for open ports/services with nmap. scan_type: 'default' (top
-    1000 TCP), 'quick' (-F), 'full' (-p-), or 'udp'."""
-    return json.dumps(_nmap_scan(target, ports, scan_type, service_detection), indent=2)
+    1000 TCP), 'quick' (-F), 'full' (-p-), or 'udp'. `ports` is an explicit
+    list/range ('22,80,443'); `top_ports` is the COUNT of most-common ports
+    ('100' -> --top-ports 100)."""
+    return json.dumps(_nmap_scan(target, ports, scan_type, service_detection, top_ports), indent=2)
 
 
 @mcp.tool()
@@ -159,10 +170,14 @@ async def arjun_scan(url: str, method: str = "GET", threads: int = 10) -> str:
 
 
 @mcp.tool()
-async def masscan_scan(target: str, ports: str = "1-1000", rate: int = 1000) -> str:
+async def masscan_scan(
+    target: str, ports: str = "1-1000", rate: int = 1000, top_ports: str = ""
+) -> str:
     """Fast async port scan of a host/CIDR range. Pair with nmap_scan for
-    service/version detection on the ports it finds."""
-    return json.dumps(_masscan_scan(target, ports, rate), indent=2)
+    service/version detection on the ports it finds. `ports` is a list/range
+    ('80,443' or '1-1000'); `top_ports` is accepted only as an alias for
+    `ports` (masscan has no top-ports preset)."""
+    return json.dumps(_masscan_scan(target, ports, rate, top_ports), indent=2)
 
 
 @mcp.tool()
@@ -230,14 +245,28 @@ def _parse_naabu(stdout: str) -> dict:
     }
 
 
+_NAABU_VALID_TOP = {"full", "100", "1000"}
+
+
 @mcp.tool()
 async def naabu_scan(target: str, ports: str = "", top_ports: str = "100") -> str:
-    """Fast port scan with naabu."""
-    target = sanitize_input(target)
+    """Fast port scan with naabu. Pass an explicit port list/range via `ports`
+    (e.g. '80,443,8080' or '1-1000'); `top_ports` is naabu's preset and only
+    accepts 'full', '100', or '1000'. A comma port list mistakenly passed as
+    `top_ports` is routed to `-p` so it still scans instead of erroring."""
+    target = strip_url(sanitize_input(target))
     if not target:
         return json.dumps({"status": "error", "error": "Target required"})
+    # naabu's own resolver rejects single-label hostnames (e.g. docker service
+    # names) as "no valid ipv4 or ipv6 targets"; resolve to an IP first.
+    target = resolve_host(target)
     cmd = ["naabu", "-host", target, "-silent", "-nc"]
-    cmd += ["-p", sanitize_input(ports)] if ports else ["-top-ports", top_ports]
+    if ports:
+        cmd += ["-p", sanitize_input(ports)]
+    elif top_ports in _NAABU_VALID_TOP:
+        cmd += ["-top-ports", top_ports]
+    else:  # a custom/comma port list slipped into top_ports - treat it as -p
+        cmd += ["-p", sanitize_input(top_ports)]
     return json.dumps(run_command(cmd, "naabu", target, parser=_parse_naabu), indent=2)
 
 
@@ -248,16 +277,27 @@ def _parse_dnsx(stdout: str) -> dict:
 
 @mcp.tool()
 async def dnsx_scan(target: str = "", list_file: str = "", wordlist: str = "", record_type: str = "a") -> str:
-    """DNS enumeration/resolution with dnsx."""
+    """DNS enumeration/resolution with dnsx.
+
+    Default (no wordlist) resolves the given host(s): dnsx's `-d` flag is
+    bruteforce mode and *requires* `-w`, so plain resolution goes through `-l`
+    instead. Supplying a `wordlist` switches to subdomain bruteforce (`-d`+`-w`).
+    """
     cmd = ["dnsx", "-silent", "-nc"]
-    if list_file:
+    if wordlist:
+        # Bruteforce mode: -d takes the base domain, -w the wordlist.
+        if not target:
+            return json.dumps({"status": "error", "error": "target required for wordlist bruteforce"})
+        cmd.extend(["-d", sanitize_input(target), "-w", sanitize_input(wordlist)])
+    elif list_file:
         cmd.extend(["-l", sanitize_input(list_file)])
     elif target:
-        cmd.extend(["-d", sanitize_input(target)])
+        # Resolve the host(s) via a list file - dnsx `-l` takes a file/stdin,
+        # not comma input, so write the target(s) out (mirrors httpx_scan).
+        list_path = save_to_workspace(safe_filename("resolve", "dnsx_input"), sanitize_input(target))
+        cmd.extend(["-l", list_path])
     else:
         return json.dumps({"status": "error", "error": "Target or list_file required"})
-    if wordlist:
-        cmd.extend(["-w", sanitize_input(wordlist)])
     if record_type:
         cmd.append(f"-{sanitize_input(record_type)}")
     return json.dumps(run_command(cmd, "dnsx", target or list_file, parser=_parse_dnsx), indent=2)
@@ -266,6 +306,29 @@ async def dnsx_scan(target: str = "", list_file: str = "", wordlist: str = "", r
 # ══════════════════════════════════════════════
 #   WORKSPACE UTILITY TOOLS
 # ══════════════════════════════════════════════
+
+
+def _within_workspace(real_path: str, real_workspace: str) -> bool:
+    """True if real_path is inside real_workspace. Uses os.path.commonpath
+    rather than str.startswith, so a sibling like '<workspace>_evil' can't slip
+    past the prefix check."""
+    try:
+        return os.path.commonpath([real_path, real_workspace]) == real_workspace
+    except ValueError:
+        return False  # e.g. different drives, or mixed absolute/relative
+
+
+def _resolve_workspace_path(filename: str) -> str:
+    """Resolve a workspace filename to a path. Scan tools hand back values like
+    './engagements/sessions/_workspace/<file>'; the workspace is flat, so if the
+    given path isn't a file, fall back to its basename inside the workspace.
+    Traversal is still caught by the _within_workspace guard at the call site: an
+    escaping path like '../../etc/passwd' points at a real file (isfile True) so
+    it is returned unchanged and the guard then rejects it."""
+    direct = os.path.join(WORKSPACE_DIR, filename)
+    if os.path.isfile(direct):
+        return direct
+    return os.path.join(WORKSPACE_DIR, os.path.basename(filename))
 
 
 @mcp.tool()
@@ -295,11 +358,12 @@ async def read_file(filename: str, max_lines: int = 100) -> str:
     if not filename:
         return json.dumps({"status": "error", "error": "Filename required"})
 
-    filepath = os.path.join(WORKSPACE_DIR, filename)
-    real_path = os.path.realpath(filepath)
     real_workspace = os.path.realpath(WORKSPACE_DIR)
-    if not real_path.startswith(real_workspace):
+    # Guard on the raw path first so an escaping input is rejected explicitly,
+    # before the basename fallback (which would otherwise pull it back inside).
+    if not _within_workspace(os.path.realpath(os.path.join(WORKSPACE_DIR, filename)), real_workspace):
         return json.dumps({"status": "error", "error": "Access denied: path traversal detected"})
+    filepath = _resolve_workspace_path(filename)
     if not os.path.isfile(filepath):
         return json.dumps({"status": "error", "error": f"File not found: {filename}"})
 
@@ -328,10 +392,9 @@ async def grep_workspace(pattern: str, filename: str = "") -> str:
     files_to_search = []
     if filename:
         filename = sanitize_input(filename)
-        filepath = os.path.join(WORKSPACE_DIR, filename)
-        real_path = os.path.realpath(filepath)
-        if not real_path.startswith(real_workspace):
+        if not _within_workspace(os.path.realpath(os.path.join(WORKSPACE_DIR, filename)), real_workspace):
             return json.dumps({"status": "error", "error": "Access denied: path traversal detected"})
+        filepath = _resolve_workspace_path(filename)
         if not os.path.isfile(filepath):
             return json.dumps({"status": "error", "error": f"File not found: {filename}"})
         files_to_search = [filepath]

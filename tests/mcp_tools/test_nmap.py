@@ -57,6 +57,39 @@ def test_nmap_scan_sanitizes_target(fake_subprocess):
     assert fake_subprocess.last_call[-1] == "example.com rm -rf /"
 
 
+def test_nmap_scan_strips_url_scheme_and_path(fake_subprocess):
+    # nmap fails with "Unable to split netmask" on a URL and reports 0 ports;
+    # the wrapper normalizes http://host/path down to the bare host.
+    fake_subprocess.stdout = _SAMPLE_STDOUT
+    nmap_scan(target="http://nisc.coop/some/path")
+    assert fake_subprocess.last_call[-1] == "nisc.coop"
+
+
+def test_nmap_scan_numeric_top_ports_uses_top_ports_flag(fake_subprocess):
+    fake_subprocess.stdout = _SAMPLE_STDOUT
+    nmap_scan(target="example.com", top_ports="100")
+    cmd = fake_subprocess.last_call
+    assert cmd[cmd.index("--top-ports") + 1] == "100"
+    assert "-p" not in cmd
+
+
+def test_nmap_scan_comma_top_ports_routed_to_dash_p(fake_subprocess):
+    # A port LIST mistakenly passed as top_ports (naabu-style) becomes -p.
+    fake_subprocess.stdout = _SAMPLE_STDOUT
+    nmap_scan(target="example.com", top_ports="80,443,8080")
+    cmd = fake_subprocess.last_call
+    assert cmd[cmd.index("-p") + 1] == "80,443,8080"
+    assert "--top-ports" not in cmd
+
+
+def test_nmap_scan_explicit_ports_beats_top_ports(fake_subprocess):
+    fake_subprocess.stdout = _SAMPLE_STDOUT
+    nmap_scan(target="example.com", ports="22", top_ports="100")
+    cmd = fake_subprocess.last_call
+    assert cmd[cmd.index("-p") + 1] == "22"
+    assert "--top-ports" not in cmd
+
+
 def test_parse_nmap_extracts_open_ports_and_os_guess():
     parsed = _parse_nmap(_SAMPLE_STDOUT)
     assert parsed["total_ports_reported"] == 3

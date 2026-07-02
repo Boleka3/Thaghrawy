@@ -29,8 +29,13 @@ python main.py               # Starts FastAPI on port 8000
 - `reporting/builder.py` → Pure functions that turn an `Engagement` + its `Finding`s into
   the two report Markdown documents (technical / executive) — no I/O, no DB access.
 - `engagements/manager.py` → Engagement lifecycle (JSON + markdown session logs)
-- `benchmarks/` → Scoring harness (ESR/AST/FP-rate) for evaluating engagement findings
-  against known DVWA/Juice Shop vulnerability categories — see `benchmarks/README.md`
+- `benchmarks/` → Scoring harness for the four `Thaghrawy_Project.pdf` metrics —
+  ESR (Exploit Success Rate, ≥0.70), AST (Average Steps per Task, from the agent's
+  per-turn step counters), FP-rate (≤0.15), and Detection Rate (distinct OWASP
+  Top-10 classes, 8/10) — evaluating engagement findings against known DVWA/Juice
+  Shop categories. `benchmarks/scorer.py` is pure (returns a `BenchmarkResult`);
+  `benchmarks/runner.py` is the I/O driver (`python -m benchmarks.runner <id>
+  <target>`). See `benchmarks/README.md`
 - `api/` → FastAPI routes and WebSocket streaming
 - `frontend/` → Dark hacker UI (HTML/CSS/JS)
 - `guardrails.py` → Safety filtering (dangerous shell patterns, JSON enforcement) — do not bypass
@@ -71,9 +76,24 @@ python main.py               # Starts FastAPI on port 8000
 
 ## Adding a New MCP Recon Tool
 1. Add a wrapper module in `mcp_servers/tools/` using `mcp_servers/tools/_common.py`'s
-   `run_command()` helper (gives you timeout + workspace persistence + JSON envelope for free)
+   `run_command()` helper (gives you timeout + workspace persistence + JSON envelope for free).
+   For host-oriented scanners, normalize the target with `_common.strip_url()` (drops a
+   URL scheme/path) and, if the scanner does poor DNS resolution, `_common.resolve_host()`
+   (resolves a bare hostname to an IP; passes IPs/CIDRs through) — naabu/masscan need this.
 2. Import and register it with `@mcp.tool()` in `mcp_servers/recon_server.py`
 3. Test the wrapper directly with `python -c "from mcp_servers.tools.X import Y; print(Y(...))"`
+
+## Live Tool Smoke Test
+Unit tests mock `subprocess.run`, so they never catch real-CLI bugs (wrong binary
+name, URL-vs-host args, kwargs the LLM invents). `scripts/tool_smoke.py` closes that
+gap: it drives **every** registered tool through the agent's own
+`ToolRegistry.execute()` against a live, owned target (Juice Shop) and classifies each
+result as OK / needs-review / BUG (uncaught exception, missing binary, bad kwarg).
+Run it in the container after touching any tool wrapper:
+```bash
+docker compose exec -T agent python3 -m scripts.tool_smoke   # exit != 0 if any BUG
+```
+Empty results on an N/A target (no subdomains/TLS/SMB) are expected, not bugs.
 
 ## Current Agent Tools
 - `search_memory`, `save_finding`, `save_technique`, `load_engagement_context` — memory
@@ -82,7 +102,9 @@ python main.py               # Starts FastAPI on port 8000
   `nmap_scan`, `masscan_scan`, `wpscan_scan`, `testssl_scan`, `wafw00f_scan`,
   `searchsploit_lookup`, `arjun_scan`, `enum4linux_scan` — recon / vuln scanning
 - `list_workspace`, `read_file`, `grep_workspace` — recon workspace utilities
-- `sqlmap_scan`, `nikto_scan`, `hydra_bruteforce` — exploitation (dangerous=True)
+- `sqlmap_scan`, `nikto_scan`, `hydra_bruteforce`, `dalfox_scan` (XSS),
+  `wapiti_scan` (broad OWASP web sweep: XSS/SQLi/command-exec/file/SSRF) —
+  exploitation (dangerous=True)
 - `generate_report(engagement_id)` — builds both a technical report (full evidence/
   reproduction steps, for developers) and an executive report (business impact, for
   management) from the engagement's saved findings via `reporting/builder.py` +
@@ -95,6 +117,35 @@ python main.py               # Starts FastAPI on port 8000
 
 See `skills.py` for the methodology guidance (which tools map to which phase
 of an engagement) injected into every system prompt via `prompt_builder.py`.
+
+## Human-in-the-Loop Workflow
+Engagements are no longer fully autonomous. Every `Engagement` has a `phase`
+(`enumeration` → `collaboration` → `reporting`) and the agent has an
+`AgentControl` (`core/control.py`) — a per-engagement asyncio control queue +
+phase/auto-approve/stop state, attached in `api/deps.py`.
+- **Enumeration (autonomous):** `PentestAgent.enumerate()` runs a deterministic
+  recon sweep and **auto-ingests** the easy structured findings via
+  `core/finding_drafts.py::finding_from_tool_result` (nuclei/sqlmap/dalfox/wapiti/
+  nikto → `Finding`, with `vuln_type` normalized to `benchmarks/ground_truth.py`
+  so they score). No approvals, no reliance on the model calling `save_finding`.
+- **Handoff → Collaboration (approval-gated):** `core/agent.py`'s `chat()` consults
+  `HUMAN_APPROVAL_MODE` (`all` default | `dangerous` | `off`) before each tool
+  call and awaits a human **approve / reject / edit / stop** (`dangerous=True` now
+  has a real runtime consumer). No control channel = legacy autonomous behavior.
+- **Comms channel:** `api/websocket.py` is a concurrent reader/worker; frames may
+  be plain chat, JSON control messages, or `/slash` commands (`/approve` `/reject`
+  `/edit` `/run` `/enumerate` `/promote` `/phase` `/report` `/auto` `/stop`
+  `/help`). Human-run-a-tool: WS `run_tool` or `POST /api/engagements/{id}/tools/{name}`.
+- **Curation:** `PATCH /api/findings/{id}` (fix vuln_type/severity/tags),
+  `DELETE /api/findings/{id}` (mark FP), `POST /api/findings/promote`
+  (result → draft). Store methods `update_finding`/`delete_finding` in
+  `memory/store.py`.
+- **Training data:** every approve/reject/edit is appended to
+  `engagements/sessions/<id>.trajectory.jsonl` (via the agent's `on_decision`
+  sink). `training/exporter.py` + `python -m scripts.export_training_data
+  --format messages|sft|preference` (and `GET /api/training/export`) turn
+  findings/techniques into SFT examples and trajectories into DPO preference
+  pairs. See `training/README.md`.
 
 ## Engagement Analysis Mode (FR-01)
 Every `Engagement` has an `analysis_mode` field — `"full_analysis"` (default) or

@@ -166,6 +166,67 @@ button:hover { background: var(--tool); color: var(--bg); }
 .findings-list li[data-severity="high"] { border-color: var(--tool); color: var(--tool); }
 .findings-list li[data-severity="medium"] { border-color: var(--memory); color: var(--memory); }
 
+.findings-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+}
+.finding-label { flex: 1; word-break: break-word; }
+.finding-actions { display: flex; gap: 4px; flex-shrink: 0; }
+
+/* mini inline buttons (approval controls, finding actions, promote) */
+button.mini {
+  padding: 2px 6px;
+  font-size: 0.7em;
+  border-color: var(--dim);
+  color: var(--dim);
+}
+button.mini:hover { background: var(--dim); color: var(--bg); }
+button.mini.ok { border-color: var(--agent); color: var(--agent); }
+button.mini.ok:hover { background: var(--agent); color: var(--bg); }
+button.mini.danger { border-color: var(--error); color: var(--error); }
+button.mini.danger:hover { background: var(--error); color: var(--bg); }
+button.mini.promote { border-color: var(--memory); color: var(--memory); }
+button.mini.promote:hover { background: var(--memory); color: var(--bg); }
+
+/* phase banner */
+.phase-banner {
+  margin: 0 12px 8px 12px;
+  padding: 4px 8px;
+  font-size: 0.72em;
+  letter-spacing: 1px;
+  border: 1px solid var(--border);
+  color: var(--dim);
+}
+.phase-banner.phase-enumeration { border-color: var(--memory); color: var(--memory); }
+.phase-banner.phase-collaboration { border-color: var(--agent); color: var(--agent); }
+.phase-banner.phase-reporting { border-color: var(--tool); color: var(--tool); }
+
+/* chat control bar + run-tool form */
+.chat-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 12px 8px 12px;
+}
+.chat-controls button { font-size: 0.72em; padding: 4px 8px; }
+.run-tool-form {
+  display: flex;
+  gap: 6px;
+  padding: 0 12px 8px 12px;
+}
+.run-tool-form input { flex: 1; }
+.run-tool-form.hidden { display: none; }
+
+/* pending approval + streamed events */
+.chat-line.tool-call.pending { color: var(--tool); }
+.chat-line.tool-call.pending.dangerous { color: var(--error); }
+.approval-controls { display: inline-flex; gap: 4px; margin-left: 8px; }
+.resolved { opacity: 0.5; }
+.chat-line.dim { color: var(--dim); font-size: 0.82em; }
+.chat-line.handoff { color: var(--tool); border-left: 2px solid var(--tool); padding-left: 8px; }
+
 .statusbar {
   display: flex;
   gap: 18px;
@@ -179,14 +240,6 @@ button:hover { background: var(--tool); color: var(--bg); }
 .conn-status { margin-left: auto; }
 .conn-connected { color: var(--agent); }
 .conn-disconnected { color: var(--error); }
-
-.hint-active {
-  color: #000;
-  background: #00ff41;
-  border-radius: 2px;
-  padding: 0 3px;
-  transition: background 0.3s, color 0.3s;
-}
 
 ::-webkit-scrollbar { width: 8px; }
 ::-webkit-scrollbar-track { background: var(--bg); }

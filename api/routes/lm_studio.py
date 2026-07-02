@@ -1,8 +1,13 @@
-"""Proxy endpoint that checks whether the configured LM Studio model is loaded."""
+"""Probe endpoint that reports whether the configured LM Studio model is loaded.
+
+This is a readiness probe, not a provider wiring: LM Studio is reached through
+the OpenAI-compatible provider (core/llm.OpenAIProvider + OPENAI_BASE_URL).
+"""
 from __future__ import annotations
 
 import httpx
 from fastapi import APIRouter
+from fastapi.responses import JSONResponse
 
 import config
 
@@ -10,7 +15,7 @@ router = APIRouter()
 
 
 @router.get("/api/lm-studio/status")
-async def lm_studio_status() -> dict:
+async def lm_studio_status():
     if config.LLM_PROVIDER != "openai" or not config.OPENAI_BASE_URL:
         return {"provider": config.LLM_PROVIDER, "lm_studio": False, "model": None}
 
@@ -28,10 +33,15 @@ async def lm_studio_status() -> dict:
             "available_models": models,
         }
     except Exception as e:
-        return {
-            "provider": "lm_studio",
-            "lm_studio": True,
-            "model": config.OPENAI_MODEL,
-            "loaded": False,
-            "error": str(e),
-        }
+        # The LM Studio endpoint is unreachable - surface that as 503 rather
+        # than a 200 that the frontend would mistake for a healthy probe.
+        return JSONResponse(
+            status_code=503,
+            content={
+                "provider": "lm_studio",
+                "lm_studio": True,
+                "model": config.OPENAI_MODEL,
+                "loaded": False,
+                "error": str(e),
+            },
+        )

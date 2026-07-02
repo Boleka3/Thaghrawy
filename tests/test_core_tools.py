@@ -135,6 +135,28 @@ def test_schema_from_function_skips_self_args_kwargs():
 # ── memory-backed tool factories ──
 
 
+def test_persist_finding_increments_engagement_count(tmp_memory, tmp_engagements, make_finding):
+    from core.tools import persist_finding
+
+    engagement = tmp_engagements.create(name="E", target="https://e.com")
+    persist_finding(tmp_memory, make_finding(engagement_id=engagement.id), tmp_engagements)
+    persist_finding(tmp_memory, make_finding(id="f2", engagement_id=engagement.id), tmp_engagements)
+
+    assert tmp_engagements.get(engagement.id).findings_count == 2
+    assert len(tmp_memory.load_engagement_findings(engagement.id)) == 2
+
+
+def test_make_save_finding_increments_count(tmp_memory, tmp_engagements):
+    engagement = tmp_engagements.create(name="E", target="https://e.com")
+    save_finding = _make_save_finding(tmp_memory, tmp_engagements)
+    save_finding({
+        "title": "X", "severity": "low", "vuln_type": "Misc", "description": "d",
+        "reproduction_steps": "r", "technique_used": "t", "target": "x",
+        "engagement_id": engagement.id,
+    })
+    assert tmp_engagements.get(engagement.id).findings_count == 1
+
+
 def test_make_save_finding_persists_and_returns_id(tmp_memory):
     save_finding = _make_save_finding(tmp_memory)
     result = save_finding({
@@ -244,6 +266,20 @@ def test_parse_tool_output_dispatches_correctly():
 
 def test_http_request_signature_exists():
     assert callable(http_request)
+
+
+def test_http_request_returns_structured_error_on_connection_failure(monkeypatch):
+    # A dead target / DNS miss must come back as a structured error, not a raised
+    # exception the registry would surface as a "raised: ..." plumbing bug.
+    import httpx
+
+    def boom(self, *a, **k):
+        raise httpx.ConnectError("Name or service not known")
+
+    monkeypatch.setattr(httpx.Client, "request", boom)
+    result = http_request(url="http://dead-target:9999", method="GET")
+    assert result["status"] == "error"
+    assert "failed" in result["error"]
 
 
 # ── registry wiring ──

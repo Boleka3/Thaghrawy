@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from mcp_servers.tools._common import run_command, sanitize_input
+from mcp_servers.tools._common import run_command, sanitize_input, strip_url
 
 
 def _parse_nmap(stdout: str) -> dict[str, Any]:
@@ -35,13 +35,25 @@ def nmap_scan(
     ports: str = "",
     scan_type: str = "default",
     service_detection: bool = True,
+    top_ports: str = "",
 ) -> dict[str, Any]:
     """Scan a host/range for open ports and services. `scan_type`:
     'default' (top 1000 TCP), 'quick' (-F fast scan), 'full' (-p- all 65535),
-    or 'udp' (-sU, slower, top UDP ports)."""
-    target = sanitize_input(target)
+    or 'udp' (-sU, slower, top UDP ports). `ports` is an explicit list/range
+    ('22,80,443' or '1-1000'); `top_ports` is the COUNT of most-common ports to
+    scan (e.g. '100' -> nmap --top-ports 100)."""
+    target = strip_url(sanitize_input(target))
     if not target:
         return {"status": "error", "error": "Target required"}
+
+    # `top_ports` should be a count (nmap --top-ports N), but the model sometimes
+    # passes an explicit port list there (generalizing from naabu). Route a comma
+    # list to -p; a bare integer to --top-ports. An explicit `ports` wins.
+    top_ports = sanitize_input(top_ports)
+    if top_ports and not ports:
+        if "," in top_ports or "-" in top_ports:
+            ports = top_ports
+            top_ports = ""
 
     cmd = ["nmap", "-Pn"]
     if scan_type == "quick":
@@ -52,6 +64,8 @@ def nmap_scan(
         cmd.append("-sU")
     if ports:
         cmd.extend(["-p", sanitize_input(ports)])
+    elif top_ports:
+        cmd.extend(["--top-ports", top_ports])
     if service_detection:
         cmd.append("-sV")
     cmd.append(target)

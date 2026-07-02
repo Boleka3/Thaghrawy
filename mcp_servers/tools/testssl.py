@@ -2,9 +2,18 @@
 from __future__ import annotations
 
 import re
+import shutil
 from typing import Any
 
 from mcp_servers.tools._common import run_command, sanitize_input
+
+
+def _testssl_binary() -> str:
+    """The upstream script is `testssl.sh`, but the Kali/Debian package installs
+    it on PATH as plain `testssl` (with `testssl.sh` sometimes absent). Prefer
+    whichever exists so we don't FileNotFoundError on a box that only has one."""
+    return shutil.which("testssl.sh") or shutil.which("testssl") or "testssl.sh"
+
 
 _VULN_FLAGS = (
     "heartbleed", "ccs_injection", "robot", "secure_renego", "secure_client_renego",
@@ -40,7 +49,7 @@ def testssl_scan(target: str, fast: bool = True) -> dict[str, Any]:
     if not target:
         return {"status": "error", "error": "Target required"}
 
-    cmd = ["testssl.sh", "--color", "0"]
+    cmd = [_testssl_binary(), "--color", "0"]
     if fast:
         cmd.append("--fast")
     cmd.append(target)

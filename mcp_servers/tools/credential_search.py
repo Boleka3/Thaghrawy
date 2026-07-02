@@ -1,4 +1,11 @@
-"""Kill Chain — Actions on Objectives: search workspace files for credential patterns."""
+"""Kill Chain — Actions on Objectives: search workspace files for credential patterns.
+
+Security: matched secret values are NEVER written to disk in the clear (project
+rule: "never store raw credentials in ChromaDB or logs"). Persisted output and
+the returned snippets are redacted via _redact() to the match location + pattern
+name plus a short masked preview, which is enough for the agent to act without
+leaking the secret.
+"""
 from __future__ import annotations
 
 import os
@@ -6,6 +13,16 @@ import re
 from typing import Any
 
 from mcp_servers.tools._common import WORKSPACE_DIR, safe_filename, save_to_workspace
+
+
+def _redact(snippet: str) -> str:
+    """Mask a matched secret: keep the first 4 characters as a hint, replace
+    the rest with a fixed marker so the raw value is never persisted."""
+    snippet = snippet.strip()
+    if len(snippet) <= 4:
+        return "[REDACTED]"
+    return f"{snippet[:4]}…[REDACTED]"
+
 
 _PATTERNS: list[tuple[str, str]] = [
     ("password_kv",      r'(?i)pass(?:word|wd)?\s*[=:]\s*\S+'),
@@ -48,12 +65,11 @@ def credential_search(directory: str = WORKSPACE_DIR) -> dict[str, Any]:
                     for pname, rx in compiled:
                         m = rx.search(line)
                         if m:
-                            snippet = m.group(0)[:120]
                             matches.append({
                                 "file": fname,
                                 "line": lineno,
                                 "pattern": pname,
-                                "match": snippet,
+                                "match": _redact(m.group(0)[:120]),
                             })
             files_scanned += 1
         except Exception:

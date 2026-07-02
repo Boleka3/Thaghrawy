@@ -3,6 +3,7 @@ files under ENGAGEMENTS_DIR, each paired with a markdown session log."""
 from __future__ import annotations
 
 import json
+import logging
 import os
 import uuid
 from datetime import datetime, timezone
@@ -10,6 +11,8 @@ from typing import Any, Optional
 
 import config
 from memory.schemas import Engagement
+
+logger = logging.getLogger("engagements.manager")
 
 
 class EngagementManager:
@@ -22,6 +25,9 @@ class EngagementManager:
 
     def _log_path(self, engagement_id: str) -> str:
         return os.path.join(self.base_dir, f"{engagement_id}.md")
+
+    def _trajectory_path(self, engagement_id: str) -> str:
+        return os.path.join(self.base_dir, f"{engagement_id}.trajectory.jsonl")
 
     def create(
         self,
@@ -50,29 +56,49 @@ class EngagementManager:
         return engagement
 
     def _save(self, engagement: Engagement) -> None:
-        with open(self._path(engagement.id), "w") as f:
+        # Atomic write: serialize to a temp file then os.replace, so a crash
+        # mid-write can't leave a half-written (corrupt) engagement JSON.
+        path = self._path(engagement.id)
+        tmp_path = f"{path}.{uuid.uuid4().hex}.tmp"
+        with open(tmp_path, "w") as f:
             json.dump(engagement.model_dump(), f, indent=2)
+        os.replace(tmp_path, path)
+
+    def _load(self, path: str) -> Optional[Engagement]:
+        """Load and validate one engagement file. A corrupt or invalid file is
+        logged and treated as absent rather than crashing the caller."""
+        try:
+            with open(path) as f:
+                return Engagement(**json.load(f))
+        except (OSError, ValueError) as exc:
+            logger.warning(f"Skipping unreadable engagement file {path}: {exc}")
+            return None
 
     def get(self, engagement_id: str) -> Optional[Engagement]:
         path = self._path(engagement_id)
         if not os.path.isfile(path):
             return None
-        with open(path) as f:
-            return Engagement(**json.load(f))
+        return self._load(path)
 
     def list(self) -> list[Engagement]:
         engagements = []
         for entry in sorted(os.listdir(self.base_dir)):
             if entry.endswith(".json"):
-                with open(os.path.join(self.base_dir, entry)) as f:
-                    engagements.append(Engagement(**json.load(f)))
+                engagement = self._load(os.path.join(self.base_dir, entry))
+                if engagement is not None:
+                    engagements.append(engagement)
         return sorted(engagements, key=lambda e: e.start_date, reverse=True)
 
     def update(self, engagement_id: str, **fields: Any) -> Optional[Engagement]:
         engagement = self.get(engagement_id)
         if engagement is None:
             return None
-        updated = engagement.model_copy(update=fields)
+        unknown = set(fields) - set(Engagement.model_fields)
+        if unknown:
+            raise ValueError(f"Unknown engagement field(s): {sorted(unknown)}")
+        # Re-validate the whole record so bad types/ranges (e.g. an invalid
+        # status or out-of-range score) are rejected, unlike model_copy.
+        updated = Engagement(**{**engagement.model_dump(), **fields})
         self._save(updated)
         return updated
 
@@ -85,6 +111,27 @@ class EngagementManager:
             return None
         return self.update(engagement_id, findings_count=engagement.findings_count + 1)
 
+    def decrement_findings_count(self, engagement_id: str) -> Optional[Engagement]:
+        """Lower the count when a finding is deleted (e.g. a confirmed false
+        positive). Never goes below zero."""
+        engagement = self.get(engagement_id)
+        if engagement is None:
+            return None
+        return self.update(engagement_id, findings_count=max(0, engagement.findings_count - 1))
+
+    def record_steps(self, engagement_id: str, steps: int) -> Optional[Engagement]:
+        """Record one completed task (turn): add `steps` tool-executions to the
+        running total and increment the turn count. Feeds the Average Steps per
+        Task (AST) metric. No-op if the engagement doesn't exist."""
+        engagement = self.get(engagement_id)
+        if engagement is None:
+            return None
+        return self.update(
+            engagement_id,
+            total_steps=engagement.total_steps + steps,
+            turn_count=engagement.turn_count + 1,
+        )
+
     def append_log(self, engagement_id: str, text: str) -> None:
         with open(self._log_path(engagement_id), "a") as f:
             f.write(text + "\n")
@@ -96,9 +143,49 @@ class EngagementManager:
         with open(path) as f:
             return f.read()
 
+    # ── structured HITL trajectory (machine-readable; feeds training export) ──
+
+    def append_trajectory(self, engagement_id: str, record: dict[str, Any]) -> None:
+        """Append one human-decision record (proposed tool call + verdict +
+        outcome) as a JSONL line. Distinct from the freeform markdown log.
+        Best-effort: never raise into the agent turn."""
+        try:
+            with open(self._trajectory_path(engagement_id), "a") as f:
+                f.write(json.dumps(record, default=str) + "\n")
+        except OSError:
+            logger.warning("failed to append trajectory for %s", engagement_id)
+
+    def read_trajectory(self, engagement_id: str) -> list[dict[str, Any]]:
+        path = self._trajectory_path(engagement_id)
+        if not os.path.isfile(path):
+            return []
+        records = []
+        with open(path) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    records.append(json.loads(line))
+                except ValueError:
+                    continue
+        return records
+
+    def all_trajectories(self) -> list[dict[str, Any]]:
+        """Every decision record across all engagements (for training export)."""
+        records: list[dict[str, Any]] = []
+        for fname in sorted(os.listdir(self.base_dir)):
+            if fname.endswith(".trajectory.jsonl"):
+                records.extend(self.read_trajectory(fname[: -len(".trajectory.jsonl")]))
+        return records
+
     def delete(self, engagement_id: str) -> bool:
         deleted = False
-        for path in (self._path(engagement_id), self._log_path(engagement_id)):
+        for path in (
+            self._path(engagement_id),
+            self._log_path(engagement_id),
+            self._trajectory_path(engagement_id),
+        ):
             if os.path.isfile(path):
                 os.remove(path)
                 deleted = True

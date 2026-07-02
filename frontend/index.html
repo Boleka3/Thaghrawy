@@ -6,7 +6,7 @@
 <title>Thaghrawy</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/style.css?v=6" />
+<link rel="stylesheet" href="/static/style.css?v=7" />
 </head>
 <body>
 <div class="app">
@@ -35,10 +35,23 @@
 
     <section class="panel panel-chat">
       <h2>AGENT CHAT</h2>
+      <div id="phase-banner" class="phase-banner">PHASE: —</div>
+      <div class="chat-controls">
+        <button id="enumerate-btn" title="Run the autonomous enumeration sweep">&#9654; Enumerate</button>
+        <button id="stop-btn" title="Halt the current turn">&#9632; Stop</button>
+        <button id="run-tool-btn" title="Run a tool yourself">&#9881; Run tool</button>
+        <button id="report-btn" title="Generate both reports">&#128196; Report</button>
+        <button id="help-btn" title="List slash commands">? Help</button>
+      </div>
+      <div id="run-tool-form" class="run-tool-form hidden">
+        <input id="run-tool-name" autocomplete="off" placeholder="tool (e.g. nuclei_scan)" />
+        <input id="run-tool-args" autocomplete="off" placeholder='args JSON e.g. {"target":"http://x"}' />
+        <button id="run-tool-go">run</button>
+      </div>
       <div id="chat-log" class="chat-log"></div>
       <div class="chat-input-row">
         <span class="prompt-caret">&gt;</span>
-        <input id="chat-input" autocomplete="off" placeholder="ask the agent..." />
+        <input id="chat-input" autocomplete="off" placeholder="ask the agent, or /help ..." />
       </div>
     </section>
 
@@ -54,15 +67,11 @@
   </main>
 
   <footer class="statusbar">
-    <span id="hint-n">[Alt+N] New Engagement</span>
-    <span id="hint-f">[Alt+A] Add Finding</span>
-    <span id="hint-m">[Alt+G] Search Memory</span>
-<span id="hint-s">[Alt+P] Settings</span>
     <span id="llm-status" class="conn-status">LLM: checking...</span>
     <span id="conn-status" class="conn-status conn-disconnected">No engagement</span>
   </footer>
 </div>
 
-<script src="/static/app.js?v=6"></script>
+<script src="/static/app.js?v=7"></script>
 </body>
 </html>

@@ -7,9 +7,11 @@ envelope shape - stays consistent across tools.
 """
 from __future__ import annotations
 
+import ipaddress
 import logging
 import os
 import re
+import socket
 import subprocess
 import sys
 from datetime import datetime
@@ -40,6 +42,41 @@ SUBPROCESS_ENV = {
 }
 
 
+def strip_url(target: str) -> str:
+    """nmap/masscan/naabu take a host or CIDR, not a URL. When the target is a
+    URL (has a scheme://), drop the scheme and any /path so
+    'http://nisc.coop/x' -> 'nisc.coop'. A bare host, IP, or CIDR is returned
+    unchanged - only a real URL has its path stripped, so CIDR masks like
+    '10.0.0.0/24' are never mangled."""
+    if not target:
+        return ""
+    t = target.strip()
+    m = re.match(r"^\w+://", t)
+    if m:
+        return t[m.end():].split("/", 1)[0]
+    return t
+
+
+def resolve_host(target: str) -> str:
+    """Resolve a bare hostname to its IPv4 address, passing IPs and CIDRs
+    through untouched. Some scanners don't do (reliable) name resolution
+    themselves - naabu rejects a single-label docker name as 'no valid ipv4 or
+    ipv6 targets', masscan rejects any hostname outright - so wrappers resolve
+    first. Falls back to the original string on resolution failure so the caller
+    still gets a meaningful tool-level error rather than a silent miss."""
+    if not target:
+        return target
+    try:
+        ipaddress.ip_network(target, strict=False)
+        return target  # already an IP or CIDR
+    except ValueError:
+        pass
+    try:
+        return socket.gethostbyname(target)
+    except OSError:
+        return target
+
+
 def sanitize_input(value: Optional[str]) -> str:
     """Strip shell metacharacters. Commands are run via argv lists (no
     shell=True) so this isn't an injection fix - it's a defense-in-depth
@@ -63,6 +100,23 @@ def save_to_workspace(filename: str, content: str) -> str:
     return filepath
 
 
+def _log_command(cmd: list[str]) -> None:
+    """Audit-log every executed tool command (argv joined) to the shared
+    shell command log, satisfying the project rule that all command
+    execution is logged. Best-effort: a logging failure never aborts a scan.
+    The engagement context is read from THAGHRAWY_ENGAGEMENT_ID when the
+    agent process sets it (defaults to 'mcp-tools')."""
+    try:
+        import guardrails
+
+        engagement_id = os.environ.get("THAGHRAWY_ENGAGEMENT_ID", "mcp-tools")
+        guardrails.Guardrails.log_shell_command(
+            " ".join(cmd), engagement_id, allowed=True, reason="mcp tool"
+        )
+    except Exception as exc:  # pragma: no cover - logging must never break a scan
+        logger.warning(f"Failed to log command: {exc}")
+
+
 def run_command(
     cmd: list[str],
     tool_name: str,
@@ -77,6 +131,7 @@ def run_command(
     timeout = timeout or config.RECON_TIMEOUT
     try:
         logger.info(f"Executing: {' '.join(cmd)} (timeout={timeout}s)")
+        _log_command(cmd)
         result = subprocess.run(
             cmd, capture_output=True, text=True, timeout=timeout,
             env=SUBPROCESS_ENV,
