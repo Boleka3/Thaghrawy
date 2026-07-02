@@ -108,6 +108,14 @@ class EngagementManager:
             return None
         return self.update(engagement_id, findings_count=engagement.findings_count + 1)
 
+    def decrement_findings_count(self, engagement_id: str) -> Optional[Engagement]:
+        """Lower the count when a finding is deleted (e.g. a confirmed false
+        positive). Never goes below zero."""
+        engagement = self.get(engagement_id)
+        if engagement is None:
+            return None
+        return self.update(engagement_id, findings_count=max(0, engagement.findings_count - 1))
+
     def record_steps(self, engagement_id: str, steps: int) -> Optional[Engagement]:
         """Record one completed task (turn): add `steps` tool-executions to the
         running total and increment the turn count. Feeds the Average Steps per

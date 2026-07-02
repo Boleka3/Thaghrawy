@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
 import config
-from api.routes import chat, engagements, findings, memory as memory_routes, reports, lm_studio
+from api.routes import chat, engagements, findings, memory as memory_routes, reports, lm_studio, tools
 from api import websocket as websocket_routes
 from engagements.manager import EngagementManager
 from memory.store import MemoryStore
@@ -31,6 +31,7 @@ app.include_router(findings.router)
 app.include_router(memory_routes.router)
 app.include_router(reports.router)
 app.include_router(lm_studio.router)
+app.include_router(tools.router)
 app.include_router(websocket_routes.router)
 
 app.mount("/static", StaticFiles(directory="frontend"), name="static")
