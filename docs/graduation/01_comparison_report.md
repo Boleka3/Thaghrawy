@@ -58,7 +58,7 @@ where the delivered system **exceeds** the proposal (human-in-the-loop).
 | FR-02 Dual technical + managerial report | High | **Met** | `reporting/builder.py`, `generate_report`; live reports in `reports/` |
 | FR-03 AI integration for analysis | High | **Met** | `core/agent.py` ReAct loop + `core/llm.py` multi-provider |
 | FR-04 Searchable scan/report history | Medium | **Met** | `engagements/manager.py` + ChromaDB semantic search (`memory/store.py`) |
-| NFR maintainability / documented code | — | **Met** | Type hints, `CLAUDE.md`, 493 tests |
+| NFR maintainability / documented code | — | **Met** | Type hints, `CONTRIBUTING.md`, 493 tests |
 | NFR portability (Docker) | — | **Met** | `docker-compose.yml`; image builds with all tools baked in |
 | NFR portability (CSV/JSON export) | — | **Met (extended)** | Training-data export to JSONL; findings via API |
 | Metric: ESR ≥ 70% | Success | **Not met with local model** | Live: 10% (1/10) — model-bound; see §6 |

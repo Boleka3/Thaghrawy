@@ -1,4 +1,4 @@
-# CLAUDE.md — Thaghrawy
+# Contributing to Thaghrawy — Developer & Architecture Guide
 
 ## What This Project Is
 AI-powered pentesting assistant with persistent cross-engagement memory.

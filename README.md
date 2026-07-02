@@ -226,7 +226,7 @@ also accepts `OPENAI_BASE_URL` for any OpenAI-compatible endpoint (e.g. LM Studi
 
 ## Branch map
 
-See [CLAUDE.md](./CLAUDE.md) for the full branch-ownership table and contribution rules.
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for the architecture overview and contribution rules.
 
 ## Security notes
 
