@@ -16,6 +16,9 @@ from core.finding_drafts import finding_from_tool_result, normalize_vuln_type
     ("path traversal / LFI", "File Inclusion"),
     ("missing security header", "Security Misconfiguration"),
     ("something totally unclassified", "Security Misconfiguration"),
+    # word-boundary guard: 'rce' must not match inside 'resource'
+    ("cross-origin-resource-policy header", "Security Misconfiguration"),
+    ("os command injection via ping", "Command Injection"),
 ])
 def test_normalize_vuln_type(hint, expected):
     assert normalize_vuln_type(hint) == expected

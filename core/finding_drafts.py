@@ -20,6 +20,7 @@ finding_from_tool_result() to pre-fill a draft the operator reviews.
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -50,10 +51,13 @@ _DEFAULT_CATEGORY = "Security Misconfiguration"
 
 
 def normalize_vuln_type(hint: str) -> str:
-    """Classify a free-text scanner hint into a ground-truth category phrase."""
+    """Classify a free-text scanner hint into a ground-truth category phrase.
+
+    Matches each needle at a word boundary so a short token can't match inside a
+    larger word (e.g. 'rce' must not fire on 'cross-origin-resou[rce]-policy')."""
     low = (hint or "").lower()
     for needles, category in _CATEGORY_RULES:
-        if any(n in low for n in needles):
+        if any(re.search(r"\b" + re.escape(n), low) for n in needles):
             return category
     return _DEFAULT_CATEGORY
 
