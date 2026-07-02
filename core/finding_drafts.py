@@ -19,6 +19,7 @@ finding_from_tool_result() to pre-fill a draft the operator reviews.
 """
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -201,12 +202,18 @@ def finding_from_tool_result(
     engagement_id: str,
     target: str,
 ) -> list[Finding]:
-    """Derive Finding drafts from a scanner's result dict. Returns [] for tools
-    with no structured vuln output or when the scan found nothing."""
+    """Derive Finding drafts from a scanner's result. Accepts either a dict or the
+    JSON string the MCP tool wrappers return. Returns [] for tools with no
+    structured vuln output or when the scan found nothing."""
     extractor = _EXTRACTORS.get(tool_name)
-    if extractor is None or not isinstance(result, dict):
+    if extractor is None:
         return []
-    if result.get("status") == "error":
+    if isinstance(result, str):
+        try:
+            result = json.loads(result)
+        except (ValueError, TypeError):
+            return []
+    if not isinstance(result, dict) or result.get("status") == "error":
         return []
     try:
         return extractor(result, engagement_id, target)

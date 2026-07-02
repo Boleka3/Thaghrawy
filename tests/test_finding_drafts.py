@@ -95,5 +95,14 @@ def test_unknown_tool_yields_nothing():
     assert finding_from_tool_result("httpx_scan", {"hosts": ["a"]}, "e", "t") == []
 
 
-def test_non_dict_result_yields_nothing():
+def test_non_json_string_result_yields_nothing():
     assert finding_from_tool_result("nuclei_scan", "some string", "e", "t") == []
+
+
+def test_json_string_result_is_parsed():
+    # MCP tool wrappers return json.dumps(...), i.e. a STRING, not a dict.
+    import json
+    raw = json.dumps({"findings": [{"template": "missing-csp", "severity": "low", "matched": "http://t/"}]})
+    findings = finding_from_tool_result("nuclei_scan", raw, "eng-1", "http://t")
+    assert len(findings) == 1
+    assert findings[0].vuln_type == "Security Misconfiguration"
