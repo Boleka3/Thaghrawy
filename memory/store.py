@@ -78,6 +78,52 @@ class MemoryStore:
         results = self.findings.get(where={"engagement_id": engagement_id})
         return _format_get_results(results)
 
+    def get_finding(self, finding_id: str) -> Optional[Finding]:
+        """Rehydrate a single Finding by id, or None if it doesn't exist."""
+        results = self.findings.get(ids=[finding_id])
+        rows = _format_get_results(results)
+        if not rows:
+            return None
+        fields = dict(rows[0]["metadata"])
+        fields["id"] = rows[0]["id"]
+        fields["tags"] = _decode_list(fields.get("tags"))
+        return Finding(**fields)
+
+    def update_finding(self, finding_id: str, fields: dict[str, Any]) -> Optional[Finding]:
+        """Patch fields on an existing finding (e.g. fix vuln_type/severity, mark
+        a false positive via tags). Re-validates through the Finding schema and
+        re-embeds the document. Returns the updated Finding, or None if unknown."""
+        current = self.get_finding(finding_id)
+        if current is None:
+            return None
+        merged = current.model_dump()
+        merged.update({k: v for k, v in fields.items() if k != "id"})
+        merged["id"] = finding_id
+        updated = Finding(**merged)
+        self.add_finding(updated)  # upsert re-embeds + rewrites metadata
+        return updated
+
+    def delete_finding(self, finding_id: str) -> bool:
+        """Remove a finding (e.g. a confirmed false positive). Returns whether it
+        existed."""
+        if self.get_finding(finding_id) is None:
+            return False
+        self.findings.delete(ids=[finding_id])
+        return True
+
+    def export_all_findings(self) -> list[Finding]:
+        """All findings across every engagement, as models (for training export)."""
+        findings: list[Finding] = []
+        for item in _format_get_results(self.findings.get()):
+            fields = dict(item["metadata"])
+            fields["id"] = item["id"]
+            fields["tags"] = _decode_list(fields.get("tags"))
+            try:
+                findings.append(Finding(**fields))
+            except ValueError:
+                continue  # skip a corrupt row rather than fail the whole export
+        return findings
+
     def load_engagement_findings_as_models(self, engagement_id: str) -> list[Finding]:
         """Reconstruct full Finding objects (for report generation) from the
         metadata stored by add_finding - the metadata now mirrors every Finding
@@ -114,6 +160,26 @@ class MemoryStore:
     def search_techniques(self, query: str, top_k: int = 3) -> list[dict[str, Any]]:
         results = self.techniques.query(query_texts=[query], n_results=top_k)
         return _format_query_results(results)
+
+    def export_all_techniques(self) -> list[Technique]:
+        """All techniques across every engagement, as models (for training export)."""
+        techniques: list[Technique] = []
+        for item in _format_get_results(self.techniques.get()):
+            meta = dict(item["metadata"])
+            try:
+                techniques.append(Technique(
+                    id=item["id"],
+                    name=meta.get("name", ""),
+                    description=item.get("document", "").split("\n", 1)[-1] if item.get("document") else "",
+                    works_against=_decode_list(meta.get("works_against")),
+                    platform=meta.get("platform", ""),
+                    engagement_id=meta.get("engagement_id", ""),
+                    date=meta.get("date", ""),
+                    tags=_decode_list(meta.get("tags")),
+                ))
+            except ValueError:
+                continue
+        return techniques
 
     # ── combined (used for prompt injection + memory_hit events) ────
     def search_context(
