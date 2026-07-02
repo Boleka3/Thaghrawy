@@ -37,26 +37,69 @@ With the profile up, the agent reaches DVWA at `http://dvwa:80` and Juice Shop a
 `http://juice-shop:3000` on the compose network (set `TARGET` per engagement or in
 `.env`).
 
-### Choosing a compute backend
+### Choosing a compute backend (CPU / NVIDIA / AMD)
 
-The embedding model's PyTorch backend is modular. The default is **CPU** (lean image,
-no CUDA download, runs anywhere) — only pick a GPU variant if you actually have the
-hardware and want GPU-accelerated embeddings:
+GPU acceleration here only speeds up the **local embedding model** used for semantic
+memory (`sentence-transformers`). The LLM itself runs outside the container (a cloud API
+or a local server), so **most users should stay on the default CPU build** — pick a GPU
+variant only if you have the hardware and want faster embedding of large memory stores.
+The backend is baked in at build time via the `COMPUTE_BACKEND` build arg, which selects
+the matching PyTorch wheel index.
+
+| Backend | Use when | Host prerequisite | `COMPUTE_BACKEND` |
+|---|---|---|---|
+| **CPU** (default) | Anytime — no GPU needed | none | `cpu` |
+| **NVIDIA** | You have an NVIDIA GPU | NVIDIA Container Toolkit + recent driver | `cuda` |
+| **AMD** | You have an AMD GPU | ROCm 6.x kernel driver | `rocm` |
+
+#### CPU (default) — nothing extra to install
 
 ```bash
-# CPU-only (default) — lean image, runs anywhere
 docker compose up --build
+```
 
-# NVIDIA GPU — needs the NVIDIA Container Toolkit on the host
+Lean image; avoids pulling the multi-GB CUDA torch wheels. Runs anywhere.
+
+#### NVIDIA GPU
+
+```bash
+# 1. Install the NVIDIA Container Toolkit, then confirm the host sees the GPU:
+nvidia-smi
+# 2. Build + run with the NVIDIA overlay layered on the base compose file:
 docker compose -f docker-compose.yml -f docker-compose.gpu-nvidia.yml up --build
+```
 
-# AMD GPU — needs the ROCm kernel driver on the host
+The overlay builds torch from the CUDA wheels (`COMPUTE_BACKEND=cuda`) and reserves all
+NVIDIA GPUs for the container. Install guide:
+<https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html>
+
+#### AMD GPU (ROCm)
+
+```bash
+# 1. Install the ROCm kernel driver on the host (ROCm 6.x), then confirm:
+rocminfo
+# 2. Build + run with the AMD overlay layered on the base compose file:
 docker compose -f docker-compose.yml -f docker-compose.gpu-amd.yml up --build
 ```
 
-The default CPU build avoids pulling the multi-GB CUDA torch wheels; the GPU overrides
-select the matching torch wheel index (`cuda`/`rocm`) via the `COMPUTE_BACKEND` build
-arg and pass the GPU devices through to the container.
+The overlay builds torch from the ROCm 6.2 wheels (`COMPUTE_BACKEND=rocm`), passes the
+`/dev/kfd` and `/dev/dri` devices through, adds the container to the `video` group, and
+relaxes seccomp (required by ROCm).
+
+#### Verify the GPU is visible inside the container
+
+```bash
+docker compose exec agent python3 -c "import torch; print('GPU available:', torch.cuda.is_available())"
+```
+
+`True` means torch found the GPU; `False` means it fell back to CPU (still fully functional).
+
+**Tips**
+- Add the practice targets to any backend by appending `--profile targets` to the command.
+- Switching backends later? Re-run with `--build` so the image rebuilds with the new torch
+  wheels — the backend is fixed at build time.
+- The embedding model is cached in the `hf_cache` volume, so it downloads only once across
+  rebuilds.
 
 ### Local install (development only)
 
