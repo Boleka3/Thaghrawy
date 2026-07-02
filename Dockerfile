@@ -53,10 +53,12 @@ RUN url="$(curl -fsSL --connect-timeout 15 --retry 5 --retry-delay 5 \
         | tr -d '\"' | head -1)"; \
     if [ -n "$url" ] && curl -fsSL --connect-timeout 15 --max-time 240 --retry 5 --retry-delay 5 \
             "$url" -o /tmp/dalfox.tar.gz; then \
-        cd /tmp && tar -xzf dalfox.tar.gz dalfox \
-        && mv /tmp/dalfox /usr/local/bin/dalfox \
-        && chmod +x /usr/local/bin/dalfox \
-        && rm -f /tmp/dalfox.tar.gz; \
+        ( cd /tmp && tar -xzf dalfox.tar.gz \
+          && bin="$(find /tmp -maxdepth 3 -type f -name dalfox | head -1)" \
+          && [ -n "$bin" ] && mv "$bin" /usr/local/bin/dalfox \
+          && chmod +x /usr/local/bin/dalfox ) \
+        || echo "WARNING: dalfox extract failed (unexpected archive layout); dalfox_scan unavailable"; \
+        rm -f /tmp/dalfox.tar.gz; \
     else \
         echo "WARNING: dalfox install skipped (asset unresolved or GitHub unreachable); dalfox_scan unavailable"; \
     fi
