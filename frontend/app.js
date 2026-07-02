@@ -1,5 +1,6 @@
 const state = {
   engagementId: null,
+  target: "",
   socket: null,
 };
 
@@ -11,6 +12,7 @@ const activeList = document.getElementById("active-engagements");
 const pastList = document.getElementById("past-engagements");
 const findingsList = document.getElementById("findings-list");
 const reportsList = document.getElementById("reports-list");
+const phaseBanner = document.getElementById("phase-banner");
 
 function appendLine(cssClass, tag, text) {
   const line = document.createElement("div");
@@ -21,15 +23,27 @@ function appendLine(cssClass, tag, text) {
     tagSpan.textContent = `[${tag}]`;
     line.appendChild(tagSpan);
   }
-  line.appendChild(document.createTextNode(text));
+  if (text) line.appendChild(document.createTextNode(text));
   chatLog.appendChild(line);
   chatLog.scrollTop = chatLog.scrollHeight;
   return line;
 }
 
 function appendStreamingAgentLine() {
-  const line = appendLine("agent", "AGENT", "");
-  return line;
+  return appendLine("agent", "AGENT", "");
+}
+
+function setPhase(phase) {
+  if (!phase) return;
+  phaseBanner.textContent = `PHASE: ${phase.toUpperCase()}`;
+  phaseBanner.className = `phase-banner phase-${phase}`;
+}
+
+// Send a structured control message over the socket.
+function sendControl(obj) {
+  if (state.socket && state.socket.readyState === WebSocket.OPEN) {
+    state.socket.send(JSON.stringify(obj));
+  }
 }
 
 async function api(path, options = {}) {
@@ -61,7 +75,9 @@ async function loadEngagements() {
 
 async function selectEngagement(eng) {
   state.engagementId = eng.id;
+  state.target = eng.target || "";
   engagementLabel.textContent = `${eng.name} — ${eng.target}`;
+  setPhase(eng.phase || "enumeration");
   document.querySelectorAll(".engagement-list li").forEach((li) => {
     li.classList.toggle("selected", li.dataset.id === eng.id);
   });
@@ -75,14 +91,85 @@ async function loadFindings(engagementId) {
   try {
     const findings = await api(`/api/findings/engagement/${engagementId}`);
     for (const f of findings) {
-      const meta = f.metadata || {};
-      const li = document.createElement("li");
-      li.dataset.severity = meta.severity || "info";
-      li.textContent = `${meta.title || f.id} — ${(meta.severity || "?").toUpperCase()}`;
-      findingsList.appendChild(li);
+      renderFinding(f);
     }
   } catch (e) {
     console.error("Failed to load findings", e);
+  }
+}
+
+function renderFinding(f) {
+  const meta = f.metadata || {};
+  const li = document.createElement("li");
+  li.dataset.severity = meta.severity || "info";
+
+  const label = document.createElement("span");
+  label.className = "finding-label";
+  label.textContent = `${meta.title || f.id} — ${(meta.severity || "?").toUpperCase()} · ${meta.vuln_type || "?"}`;
+  li.appendChild(label);
+
+  const actions = document.createElement("span");
+  actions.className = "finding-actions";
+
+  const editBtn = document.createElement("button");
+  editBtn.className = "mini";
+  editBtn.textContent = "edit";
+  editBtn.addEventListener("click", (ev) => { ev.stopPropagation(); editFinding(f.id, meta); });
+
+  const fpBtn = document.createElement("button");
+  fpBtn.className = "mini danger";
+  fpBtn.textContent = "FP✕";
+  fpBtn.title = "Mark false positive (delete)";
+  fpBtn.addEventListener("click", (ev) => { ev.stopPropagation(); deleteFinding(f.id); });
+
+  actions.appendChild(editBtn);
+  actions.appendChild(fpBtn);
+  li.appendChild(actions);
+  findingsList.appendChild(li);
+}
+
+async function editFinding(id, meta) {
+  const severity = prompt("Severity (critical/high/medium/low/info):", meta.severity || "medium");
+  if (severity === null) return;
+  const vuln_type = prompt("Vuln type (must contain the OWASP/DVWA category to score):", meta.vuln_type || "");
+  if (vuln_type === null) return;
+  try {
+    await api(`/api/findings/${id}`, { method: "PATCH", body: JSON.stringify({ severity, vuln_type }) });
+    await loadFindings(state.engagementId);
+  } catch (e) {
+    alert(`Update failed: ${e.message}`);
+  }
+}
+
+async function deleteFinding(id) {
+  if (!confirm("Delete this finding (mark false positive)?")) return;
+  try {
+    await api(`/api/findings/${id}`, { method: "DELETE" });
+    await loadFindings(state.engagementId);
+  } catch (e) {
+    alert(`Delete failed: ${e.message}`);
+  }
+}
+
+// Turn a scanner tool_result into finding(s) the operator confirms.
+async function promoteResult(tool, output) {
+  try {
+    const res = await api("/api/findings/promote", {
+      method: "POST",
+      body: JSON.stringify({ tool, result: output, engagement_id: state.engagementId, target: state.target }),
+    });
+    const drafts = res.drafts || [];
+    if (!drafts.length) {
+      alert(`No findings derivable from ${tool} output.`);
+      return;
+    }
+    if (!confirm(`Promote ${drafts.length} finding(s) from ${tool}?`)) return;
+    for (const d of drafts) {
+      await api("/api/findings", { method: "POST", body: JSON.stringify(d) });
+    }
+    await loadFindings(state.engagementId);
+  } catch (e) {
+    alert(`Promote failed: ${e.message}`);
   }
 }
 
@@ -104,6 +191,37 @@ async function loadReports(engagementId) {
   }
 }
 
+// Render a pending tool call with Approve / Reject / Edit controls.
+function appendPendingToolCall(msg) {
+  const line = appendLine(`tool-call pending${msg.dangerous ? " dangerous" : ""}`, "APPROVE?", "");
+  const desc = document.createElement("span");
+  desc.textContent = `${msg.dangerous ? "⚠ " : ""}${msg.tool} ${JSON.stringify(msg.arguments || {})}`;
+  line.appendChild(desc);
+
+  const controls = document.createElement("span");
+  controls.className = "approval-controls";
+
+  const mk = (label, cls, handler) => {
+    const b = document.createElement("button");
+    b.className = `mini ${cls}`;
+    b.textContent = label;
+    b.addEventListener("click", () => { handler(); controls.remove(); desc.classList.add("resolved"); });
+    return b;
+  };
+
+  controls.appendChild(mk("approve", "ok", () => sendControl({ type: "approve", id: msg.id })));
+  controls.appendChild(mk("reject", "danger", () => sendControl({ type: "reject", id: msg.id })));
+  controls.appendChild(mk("edit", "", () => {
+    const raw = prompt("Edit arguments (JSON):", JSON.stringify(msg.arguments || {}));
+    if (raw === null) { controls.remove(); return; }
+    let parsed;
+    try { parsed = JSON.parse(raw); } catch { alert("Invalid JSON"); return; }
+    sendControl({ type: "edit", id: msg.id, arguments: parsed });
+  }));
+
+  line.appendChild(controls);
+}
+
 function connectSocket() {
   if (state.socket) state.socket.close();
   const protocol = window.location.protocol === "https:" ? "wss" : "ws";
@@ -114,13 +232,9 @@ function connectSocket() {
     connStatus.textContent = "Chat: CONNECTED";
     connStatus.classList.remove("conn-disconnected");
     connStatus.classList.add("conn-connected");
-    connStatus.classList.remove("conn-disconnected");
-    connStatus.classList.add("conn-connected");
   };
   socket.onclose = () => {
     connStatus.textContent = "Chat: DISCONNECTED";
-    connStatus.classList.remove("conn-connected");
-    connStatus.classList.add("conn-disconnected");
     connStatus.classList.remove("conn-connected");
     connStatus.classList.add("conn-disconnected");
   };
@@ -138,17 +252,66 @@ function connectSocket() {
       case "tool_call":
         appendLine("tool-call", "TOOL", `${msg.tool} ${JSON.stringify(msg.command || msg.arguments || {})}`);
         break;
-      case "tool_result":
-        appendLine("tool-result", "OUT", typeof msg.output === "string" ? msg.output : JSON.stringify(msg.output));
+      case "tool_call_pending":
+        appendPendingToolCall(msg);
+        break;
+      case "tool_edited":
+        appendLine("tool-call", "EDITED", `${msg.tool} ${JSON.stringify(msg.arguments || {})}`);
+        break;
+      case "tool_rejected":
+        appendLine("memory", "REJECTED", `${msg.tool} declined — agent will re-plan.`);
+        break;
+      case "tool_result": {
+        const outText = typeof msg.output === "string" ? msg.output : JSON.stringify(msg.output);
+        const line = appendLine("tool-result", msg.source === "human" ? "OUT(you)" : "OUT", outText);
+        // Offer promotion to a finding for structured scanner output.
+        if (msg.output && typeof msg.output === "object") {
+          const b = document.createElement("button");
+          b.className = "mini promote";
+          b.textContent = "→finding";
+          b.addEventListener("click", () => promoteResult(msg.tool, msg.output));
+          line.appendChild(document.createTextNode(" "));
+          line.appendChild(b);
+        }
+        break;
+      }
+      case "step":
+        appendLine("dim", `STEP ${msg.count}`, msg.tool);
         break;
       case "token":
         if (!currentAgentLine) currentAgentLine = appendStreamingAgentLine();
-        currentAgentLine.textContent += msg.content;
+        currentAgentLine.appendChild(document.createTextNode(msg.content));
         chatLog.scrollTop = chatLog.scrollHeight;
         break;
+      case "assistant_suggestion":
+        appendLine("memory", "SUGGEST", typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content));
+        break;
       case "finding_saved":
-        appendLine("memory", "FINDING_SAVED", JSON.stringify(msg.finding));
+        appendLine("memory", "FINDING_SAVED", (msg.finding && (msg.finding.title || msg.finding.vuln_type)) || "saved");
         loadFindings(state.engagementId);
+        break;
+      case "handoff":
+        setPhase(msg.phase || "collaboration");
+        appendLine("handoff", "HANDOFF", msg.message);
+        loadFindings(state.engagementId);
+        break;
+      case "phase":
+        setPhase(msg.phase);
+        break;
+      case "stopped":
+        appendLine("error", "STOPPED", "Turn halted.");
+        currentAgentLine = null;
+        break;
+      case "report_ready":
+        appendLine("memory", "REPORTS", "Reports generated.");
+        loadReports(state.engagementId);
+        break;
+      case "help":
+        appendLine("memory", "HELP", "");
+        (msg.commands || []).forEach((c) => appendLine("dim", "", c));
+        break;
+      case "info":
+        appendLine("dim", "INFO", msg.message);
         break;
       case "error":
         appendLine("error", "ERROR", msg.message);
@@ -165,8 +328,39 @@ chatInput.addEventListener("keydown", (e) => {
   const text = chatInput.value.trim();
   if (!text || !state.socket || state.socket.readyState !== WebSocket.OPEN) return;
   appendLine("user", "YOU", text);
+  // Raw text: the backend parses plain chat, JSON, and /slash commands.
   state.socket.send(text);
   chatInput.value = "";
+});
+
+document.getElementById("enumerate-btn").addEventListener("click", () => {
+  if (!state.engagementId) return alert("Select an engagement first.");
+  appendLine("user", "YOU", "/enumerate");
+  sendControl({ type: "enumerate" });
+});
+
+document.getElementById("stop-btn").addEventListener("click", () => sendControl({ type: "stop" }));
+document.getElementById("help-btn").addEventListener("click", () => sendControl({ type: "help" }));
+
+document.getElementById("report-btn").addEventListener("click", () => {
+  if (!state.engagementId) return alert("Select an engagement first.");
+  appendLine("user", "YOU", "/report");
+  sendControl({ type: "report" });
+});
+
+document.getElementById("run-tool-btn").addEventListener("click", () => {
+  document.getElementById("run-tool-form").classList.toggle("hidden");
+});
+
+document.getElementById("run-tool-go").addEventListener("click", () => {
+  const tool = document.getElementById("run-tool-name").value.trim();
+  const argsRaw = document.getElementById("run-tool-args").value.trim() || "{}";
+  if (!tool) return;
+  let args;
+  try { args = JSON.parse(argsRaw); } catch { return alert("Invalid JSON args"); }
+  appendLine("user", "YOU", `/run ${tool} ${argsRaw}`);
+  sendControl({ type: "run_tool", tool, arguments: args });
+  document.getElementById("run-tool-form").classList.add("hidden");
 });
 
 document.getElementById("new-engagement-btn").addEventListener("click", async () => {
@@ -201,7 +395,7 @@ document.getElementById("add-finding-btn").addEventListener("click", async () =>
       description: description || "",
       reproduction_steps: "",
       technique_used: "",
-      target: "",
+      target: state.target || "",
       engagement_id: state.engagementId,
       date: new Date().toISOString().slice(0, 10),
       tags: [],
