@@ -40,6 +40,7 @@ _HELP = [
     "/phase collab|report — advance the workflow phase",
     "/auto off|safe|all — change what auto-approves this turn",
     "/report — generate both reports",
+    "/tools — list available tools",
     "/stop — halt the current turn",
     "/help — show this list",
 ]
@@ -102,6 +103,8 @@ def _parse_slash(raw: str) -> dict[str, Any]:
         return {"type": "enumerate"}
     if cmd == "report":
         return {"type": "report"}
+    if cmd == "tools":
+        return {"type": "list_tools"}
     if cmd == "stop":
         return {"type": STOP}
     if cmd == "help":
@@ -169,6 +172,18 @@ async def _handle_work(
                 pass
         await ws.send_json({"type": "phase", "phase": "reporting"})
         await ws.send_json({"type": "report_ready", "reports": result})
+        return
+
+    if mtype == "list_tools":
+        tools = [
+            {"name": name, "description": tool.description, "dangerous": tool.dangerous}
+            for name, tool in sorted(
+                ((n, agent.registry.get(n)) for n in agent.registry.names()),
+                key=lambda pair: pair[0],
+            )
+            if tool is not None
+        ]
+        await ws.send_json({"type": "tools", "tools": tools})
         return
 
     if mtype == "help":

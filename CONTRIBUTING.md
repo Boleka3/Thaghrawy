@@ -150,7 +150,7 @@ phase/auto-approve/stop state, attached in `api/deps.py`.
   has a real runtime consumer). No control channel = legacy autonomous behavior.
 - **Comms channel:** `api/websocket.py` is a concurrent reader/worker; frames may
   be plain chat, JSON control messages, or `/slash` commands (`/approve` `/reject`
-  `/edit` `/run` `/enumerate` `/promote` `/phase` `/report` `/auto` `/stop`
+  `/edit` `/run` `/enumerate` `/promote` `/phase` `/report` `/tools` `/auto` `/stop`
   `/help`). Human-run-a-tool: WS `run_tool` or `POST /api/engagements/{id}/tools/{name}`.
 - **Curation:** `PATCH /api/findings/{id}` (fix vuln_type/severity/tags),
   `DELETE /api/findings/{id}` (mark FP), `POST /api/findings/promote`

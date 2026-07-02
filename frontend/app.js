@@ -311,6 +311,12 @@ function connectSocket() {
         appendLine("memory", "HELP", "");
         (msg.commands || []).forEach((c) => appendLine("dim", "", c));
         break;
+      case "tools":
+        appendLine("memory", "TOOLS", "");
+        (msg.tools || []).forEach((t) =>
+          appendLine("dim", "", `${t.name}${t.dangerous ? " (dangerous)" : ""} — ${t.description}`)
+        );
+        break;
       case "info":
         appendLine("dim", "INFO", msg.message);
         break;
@@ -341,6 +347,7 @@ document.getElementById("enumerate-btn").addEventListener("click", () => {
 });
 
 document.getElementById("stop-btn").addEventListener("click", () => sendControl({ type: "stop" }));
+document.getElementById("tools-btn").addEventListener("click", () => sendControl({ type: "list_tools" }));
 document.getElementById("help-btn").addEventListener("click", () => sendControl({ type: "help" }));
 
 document.getElementById("report-btn").addEventListener("click", () => {
