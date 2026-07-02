@@ -118,6 +118,35 @@ Empty results on an N/A target (no subdomains/TLS/SMB) are expected, not bugs.
 See `skills.py` for the methodology guidance (which tools map to which phase
 of an engagement) injected into every system prompt via `prompt_builder.py`.
 
+## Human-in-the-Loop Workflow
+Engagements are no longer fully autonomous. Every `Engagement` has a `phase`
+(`enumeration` → `collaboration` → `reporting`) and the agent has an
+`AgentControl` (`core/control.py`) — a per-engagement asyncio control queue +
+phase/auto-approve/stop state, attached in `api/deps.py`.
+- **Enumeration (autonomous):** `PentestAgent.enumerate()` runs a deterministic
+  recon sweep and **auto-ingests** the easy structured findings via
+  `core/finding_drafts.py::finding_from_tool_result` (nuclei/sqlmap/dalfox/wapiti/
+  nikto → `Finding`, with `vuln_type` normalized to `benchmarks/ground_truth.py`
+  so they score). No approvals, no reliance on the model calling `save_finding`.
+- **Handoff → Collaboration (approval-gated):** `core/agent.py`'s `chat()` consults
+  `HUMAN_APPROVAL_MODE` (`all` default | `dangerous` | `off`) before each tool
+  call and awaits a human **approve / reject / edit / stop** (`dangerous=True` now
+  has a real runtime consumer). No control channel = legacy autonomous behavior.
+- **Comms channel:** `api/websocket.py` is a concurrent reader/worker; frames may
+  be plain chat, JSON control messages, or `/slash` commands (`/approve` `/reject`
+  `/edit` `/run` `/enumerate` `/promote` `/phase` `/report` `/auto` `/stop`
+  `/help`). Human-run-a-tool: WS `run_tool` or `POST /api/engagements/{id}/tools/{name}`.
+- **Curation:** `PATCH /api/findings/{id}` (fix vuln_type/severity/tags),
+  `DELETE /api/findings/{id}` (mark FP), `POST /api/findings/promote`
+  (result → draft). Store methods `update_finding`/`delete_finding` in
+  `memory/store.py`.
+- **Training data:** every approve/reject/edit is appended to
+  `engagements/sessions/<id>.trajectory.jsonl` (via the agent's `on_decision`
+  sink). `training/exporter.py` + `python -m scripts.export_training_data
+  --format messages|sft|preference` (and `GET /api/training/export`) turn
+  findings/techniques into SFT examples and trajectories into DPO preference
+  pairs. See `training/README.md`.
+
 ## Engagement Analysis Mode (FR-01)
 Every `Engagement` has an `analysis_mode` field — `"full_analysis"` (default) or
 `"recon_only"`. `api/deps.py`'s `_get_or_create_agent()` reads it and calls
