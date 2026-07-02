@@ -36,6 +36,7 @@ _HELP = [
     "/suggest — ask the model for the next step",
     "/draft [ref] — ask the model to draft a finding from a result",
     "/promote <ref> — turn a scanner result into a finding",
+    "/enumerate — run the autonomous enumeration sweep + auto-ingest findings",
     "/phase collab|report — advance the workflow phase",
     "/auto off|safe|all — change what auto-approves this turn",
     "/report — generate both reports",
@@ -97,6 +98,8 @@ def _parse_slash(raw: str) -> dict[str, Any]:
         return {"type": "set_phase", "phase": rest}
     if cmd == "auto":
         return {"type": "set_auto_approve", "mode": rest or "off"}
+    if cmd == "enumerate":
+        return {"type": "enumerate"}
     if cmd == "report":
         return {"type": "report"}
     if cmd == "stop":
@@ -150,11 +153,29 @@ async def _handle_work(
             await ws.send_json({"type": "finding_saved", "finding": args})
         return
 
+    if mtype == "enumerate":
+        control.begin_turn()
+        async for event in agent.enumerate():
+            await ws.send_json(event)
+        return
+
+    if mtype == "report":
+        result = await agent.registry.execute("generate_report", {"engagement_id": agent.engagement_id})
+        control.set_phase("reporting")
+        if agent.engagement_manager is not None:
+            try:
+                agent.engagement_manager.update(agent.engagement_id, phase="reporting")
+            except Exception:
+                pass
+        await ws.send_json({"type": "phase", "phase": "reporting"})
+        await ws.send_json({"type": "report_ready", "reports": result})
+        return
+
     if mtype == "help":
         await ws.send_json({"type": "help", "commands": _HELP})
         return
 
-    # ask / promote / report are wired in later parts of the HITL work.
+    # ask / promote are wired in later parts of the HITL work.
     await ws.send_json({"type": "info", "message": f"'{mtype}' is not available yet"})
 
 

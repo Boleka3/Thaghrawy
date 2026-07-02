@@ -196,3 +196,45 @@ async def test_on_decision_sink_captures_verdicts(tmp_memory, real_registry, fak
 
 async def _drain(stream):
     return [e async for e in stream]
+
+
+# ── autonomous enumeration + handoff ──
+
+
+@pytest.mark.anyio
+async def test_enumerate_auto_ingests_and_hands_off(tmp_memory, real_registry, fake_provider, tmp_path):
+    from engagements.manager import EngagementManager
+
+    manager = EngagementManager(base_dir=str(tmp_path))
+    eng = manager.create(name="e", target="http://t")
+
+    # Stub nuclei to return structured findings without touching the real binary.
+    real_registry.register(
+        "nuclei_scan",
+        lambda target=None: {
+            "status": "success",
+            "findings": [
+                {"template": "missing-csp-header", "severity": "low", "matched": "http://t/"},
+                {"template": "CVE-2021-1", "severity": "high", "matched": "http://t/x"},
+            ],
+        },
+    )
+    control = AgentControl(phase="enumeration")
+    agent = PentestAgent(
+        engagement_id=eng.id, target="http://t", memory=tmp_memory,
+        registry=real_registry, provider=fake_provider(scripts=[]),
+        engagement_manager=manager, control=control,
+    )
+
+    events = [e async for e in agent.enumerate()]
+    types = _types(events)
+
+    assert types.count("finding_saved") == 2
+    assert "handoff" in types
+    handoff = _of_type(events, "handoff")[0]
+    assert handoff["findings_saved"] == 2
+    # phase flipped to collaboration (in-memory + persisted)
+    assert control.phase == "collaboration"
+    assert manager.get(eng.id).phase == "collaboration"
+    # findings really persisted
+    assert len(tmp_memory.load_engagement_findings(eng.id)) == 2
