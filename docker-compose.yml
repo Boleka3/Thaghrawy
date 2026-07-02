@@ -1,11 +1,17 @@
 services:
+  # Optional practice targets — NOT started by default. They exist only for
+  # exercising the agent against known-vulnerable apps. Bring them up with:
+  #   docker compose --profile targets up
+  # Users deploying the Thaghrawy harness against their own scope don't need them.
   dvwa:
     image: vulnerables/web-dvwa
+    profiles: ["targets"]
     ports:
       - "8080:80"
 
   juice-shop:
     image: bkimminich/juice-shop
+    profiles: ["targets"]
     ports:
       - "3000:3000"
 
@@ -23,16 +29,16 @@ services:
     environment:
       # Docker-specific overrides — take priority over env_file values
       - CHROMA_PERSIST_DIR=/app/chroma_db
-      - TARGET=http://dvwa:80
-      - JUICESHOP_TARGET=http://juice-shop:3000
+      # When the practice targets are running (`--profile targets`), the agent
+      # reaches them by service name — set TARGET per engagement, or in .env, e.g.
+      #   TARGET=http://dvwa:80   /   JUICESHOP_TARGET=http://juice-shop:3000
     volumes:
       - chroma_data:/app/chroma_db
       - engagement_data:/app/engagements/sessions
       - hf_cache:/root/.cache/huggingface
       - ./reports:/app/reports
-    depends_on:
-      - dvwa
-      - juice-shop
+    # No depends_on: the harness runs standalone. The practice targets are an
+    # opt-in profile (above), not a dependency.
     # Reach services on the Docker host (e.g. an LM Studio / Ollama LLM running on this
     # machine) by a stable name regardless of the host's LAN IP. Then set, in .env:
     #   OPENAI_BASE_URL=http://host.docker.internal:1234/v1   (LM Studio)

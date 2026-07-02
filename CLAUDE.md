@@ -5,11 +5,25 @@ AI-powered pentesting assistant with persistent cross-engagement memory.
 Graduation project — 6 developers, active development.
 
 ## Running the Project
+**Docker Compose is the primary, supported way to run this project** — it builds and
+starts just the Thaghrawy agent harness, with all ~29 security tools baked into the image.
 ```bash
+cp .env.example .env         # Fill in your LLM endpoint / API keys
+docker compose up --build    # Agent only; open http://localhost:8000
+```
+The DVWA/Juice Shop practice targets are **not** started by default — they exist only
+for testing the agent and sit behind a `targets` Compose profile:
+`docker compose --profile targets up`. GPU variants and connectivity/LLM-endpoint config
+are in `README.md`. The default build is CPU-only (no multi-GB CUDA torch download); pick
+a `docker-compose.gpu-*.yml` overlay only if you have the hardware.
+
+Local install (development / running the test suite only) — you must install the security
+tools yourself; Docker is what guarantees they're present:
+```bash
+pip install torch --index-url https://download.pytorch.org/whl/cpu  # skip the CUDA build
 pip install -r requirements.txt
-cp .env.example .env        # Fill in your API keys
+cp .env.example .env
 python main.py               # Starts FastAPI on port 8000
-# Open http://localhost:8000 in browser
 ```
 
 ## Architecture at a Glance
@@ -89,8 +103,10 @@ name, URL-vs-host args, kwargs the LLM invents). `scripts/tool_smoke.py` closes 
 gap: it drives **every** registered tool through the agent's own
 `ToolRegistry.execute()` against a live, owned target (Juice Shop) and classifies each
 result as OK / needs-review / BUG (uncaught exception, missing binary, bad kwarg).
-Run it in the container after touching any tool wrapper:
+Run it in the container after touching any tool wrapper (bring the practice targets
+up first — the smoke harness scans Juice Shop):
 ```bash
+docker compose --profile targets up -d           # start agent + Juice Shop/DVWA
 docker compose exec -T agent python3 -m scripts.tool_smoke   # exit != 0 if any BUG
 ```
 Empty results on an N/A target (no subdomains/TLS/SMB) are expected, not bugs.
