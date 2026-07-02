@@ -5,11 +5,23 @@ AI-powered pentesting assistant with persistent cross-engagement memory.
 Graduation project — 6 developers, active development.
 
 ## Running the Project
+**Docker Compose is the primary, supported way to run this project** — it starts the
+agent plus the DVWA/Juice Shop targets with all ~29 security tools baked into the image.
 ```bash
+cp .env.example .env         # Fill in your LLM endpoint / API keys
+docker compose up --build    # Agent + targets; open http://localhost:8000
+```
+GPU variants and connectivity/LLM-endpoint config are in `README.md`. The default build
+is CPU-only (no multi-GB CUDA torch download); pick a `docker-compose.gpu-*.yml` overlay
+only if you have the hardware.
+
+Local install (development / running the test suite only) — you must install the security
+tools yourself; Docker is what guarantees they're present:
+```bash
+pip install torch --index-url https://download.pytorch.org/whl/cpu  # skip the CUDA build
 pip install -r requirements.txt
-cp .env.example .env        # Fill in your API keys
+cp .env.example .env
 python main.py               # Starts FastAPI on port 8000
-# Open http://localhost:8000 in browser
 ```
 
 ## Architecture at a Glance
