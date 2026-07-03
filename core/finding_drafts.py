@@ -16,16 +16,24 @@ the dominant class of enumeration findings).
 Used two ways: PentestAgent.enumerate() auto-ingests during the autonomous
 enumeration phase, and the human-driven "promote result -> finding" flow reuses
 finding_from_tool_result() to pre-fill a draft the operator reviews.
+
+Also detects flag/secret patterns (picoCTF{...}, CTF{...}) in ANY tool output
+via flag_findings_from_output(), which is appended to every finding_from_tool_result
+call — so flags from shell, http_request, or any tool get surfaced as draft findings.
 """
 from __future__ import annotations
 
 import json
+import logging
 import re
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+import config
 from memory.schemas import Finding
+
+logger = logging.getLogger(__name__)
 
 _VALID_SEVERITIES = {"critical", "high", "medium", "low", "info"}
 
@@ -79,6 +87,7 @@ def _mk(
     reproduction_steps: str,
     technique_used: str,
     affected_component: Optional[str] = None,
+    tags: Optional[list[str]] = None,
 ) -> Finding:
     return Finding(
         id=str(uuid.uuid4()),
@@ -91,7 +100,7 @@ def _mk(
         target=target,
         engagement_id=engagement_id,
         date=datetime.now(timezone.utc).date().isoformat(),
-        tags=[vuln_type, "auto-ingested"],
+        tags=tags or [vuln_type, "auto-ingested"],
         affected_component=affected_component,
     )
 
@@ -192,6 +201,65 @@ def _from_dalfox(result: dict[str, Any], engagement_id: str, target: str) -> lis
     )]
 
 
+# Built-in flag patterns: picoCTF{...}, CTF{...}, flag{...}
+_FLAG_PATTERNS: list[re.Pattern] = [
+    re.compile(r"picoCTF\{[^}]{1,256}\}"),
+    re.compile(r"(?i)\b(?:flag|ctf)\{[^}]{1,256}\}"),
+]
+
+
+def _coerce_to_string(result: Any) -> str:
+    if isinstance(result, str):
+        return result
+    if isinstance(result, dict):
+        try:
+            return json.dumps(result)
+        except (ValueError, TypeError):
+            return str(result)
+    return str(result)
+
+
+def flag_findings_from_output(
+    tool_name: str,
+    result: Any,
+    engagement_id: str,
+    target: str,
+) -> list[Finding]:
+    """Scan any tool output for captured flag/secret patterns. Returns one
+    Finding per unique match, vuln_type='Sensitive Data Exposure'."""
+    text = _coerce_to_string(result)
+    if not text:
+        return []
+
+    patterns = list(_FLAG_PATTERNS)
+    if config.FLAG_REGEX:
+        try:
+            patterns.append(re.compile(config.FLAG_REGEX))
+        except re.error as exc:
+            logger.warning("Invalid FLAG_REGEX pattern (%s): %s", config.FLAG_REGEX, exc)
+
+    seen: set[str] = set()
+    findings: list[Finding] = []
+    for pat in patterns:
+        for m in pat.finditer(text):
+            match = m.group(0)
+            if match in seen:
+                continue
+            seen.add(match)
+            findings.append(_mk(
+                engagement_id=engagement_id,
+                target=target,
+                title=f"Secret/flag captured: {match[:80]}",
+                vuln_type="Sensitive Data Exposure",
+                severity="high",
+                description=f"Flag/secret pattern matched in {tool_name} output: {match}",
+                reproduction_steps=f"Rerun {tool_name} and observe the match in its output.",
+                technique_used=tool_name,
+                tags=["flag", "auto-ingested"],
+            ))
+    return findings
+
+
 _EXTRACTORS = {
     "nuclei_scan": _from_nuclei,
     "nikto_scan": _from_nikto,
@@ -209,18 +277,26 @@ def finding_from_tool_result(
 ) -> list[Finding]:
     """Derive Finding drafts from a scanner's result. Accepts either a dict or the
     JSON string the MCP tool wrappers return. Returns [] for tools with no
-    structured vuln output or when the scan found nothing."""
+    structured vuln output or when the scan found nothing.
+
+    Also appends flag/secret detections from ANY tool output (shell, http_request,
+    etc.) via flag_findings_from_output, so captured flags are always surfaced."""
+    findings: list[Finding] = []
     extractor = _EXTRACTORS.get(tool_name)
-    if extractor is None:
-        return []
-    if isinstance(result, str):
-        try:
-            result = json.loads(result)
-        except (ValueError, TypeError):
-            return []
-    if not isinstance(result, dict) or result.get("status") == "error":
-        return []
+    if extractor is not None:
+        if isinstance(result, str):
+            try:
+                result = json.loads(result)
+            except (ValueError, TypeError) as exc:
+                logger.debug("Tool result not JSON for %s: %s", tool_name, exc)
+        if isinstance(result, dict) and result.get("status") != "error":
+            try:
+                findings.extend(extractor(result, engagement_id, target))
+            except Exception as exc:
+                logger.warning("%s extractor failed: %s", tool_name, exc)
+    # Flag/secret detection on any tool output (including shell, http_request, etc.)
     try:
-        return extractor(result, engagement_id, target)
-    except Exception:
-        return []
+        findings.extend(flag_findings_from_output(tool_name, result, engagement_id, target))
+    except Exception as exc:
+        logger.warning("flag_findings_from_output failed for %s: %s", tool_name, exc)
+    return findings

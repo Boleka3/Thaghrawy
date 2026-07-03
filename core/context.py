@@ -17,13 +17,27 @@ class ContextManager:
     def _size(messages: list[dict[str, Any]]) -> int:
         return sum(len(str(m.get("content", ""))) for m in messages)
 
+    @staticmethod
+    def _is_orphan_head(message: dict[str, Any]) -> bool:
+        """A leading message that can't validly start a window handed to the
+        model: a `tool` result (its `assistant` tool_call turn was trimmed away)
+        or an `assistant` message that itself carries `tool_calls`. Some model
+        chat templates (notably weak local LM Studio models) fail to render a
+        conversation that opens on one of these — e.g. "No user query found in
+        messages"."""
+        role = message.get("role")
+        return role == "tool" or (role == "assistant" and bool(message.get("tool_calls")))
+
     def trim(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Drop oldest turns until under budget. Always keeps the most
-        recent message so the conversation can still proceed."""
-        if self._size(messages) <= self.max_chars:
-            return messages
+        """Drop oldest turns until under budget, then drop any leading orphan
+        tool/tool-call messages so the window starts on a clean user/assistant
+        turn. Always keeps the most recent message so the conversation can still
+        proceed."""
         trimmed = list(messages)
         while len(trimmed) > 1 and self._size(trimmed) > self.max_chars:
+            trimmed.pop(0)
+        # Never open the window on an orphaned tool result / dangling tool-call.
+        while len(trimmed) > 1 and self._is_orphan_head(trimmed[0]):
             trimmed.pop(0)
         return trimmed
 

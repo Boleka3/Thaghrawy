@@ -152,3 +152,98 @@ async def test_chat_memory_search_failure_still_proceeds(tmp_memory, real_regist
     assert "Memory search failed" in errors[0]["message"]
     assert "".join(t["content"] for t in _events_of_type(events, "token")) == "still working"
     assert events[-1] == {"type": "done", "steps": 0}
+
+
+@pytest.mark.anyio
+async def test_chat_emits_finding_draft_when_flag_in_tool_result(tmp_memory, real_registry, fake_provider):
+    """Agent emits finding_draft when a tool result contains a flag pattern."""
+    provider = fake_provider(scripts=[
+        [
+            {"type": "tool_call", "id": "t1", "name": "shell", "arguments": {"command": "cat /flag.txt"}},
+        ],
+    ])
+    agent = PentestAgent(
+        engagement_id="eng-1", target="https://example.com",
+        memory=tmp_memory, registry=real_registry, provider=provider,
+    )
+    agent.registry.register("shell", lambda command: {
+        "stdout": "picoCTF{agent_found_flag}",
+        "exit_code": 0, "status": "success",
+    }, dangerous=True)
+
+    events = [event async for event in agent.chat("find the flag")]
+    drafts = _events_of_type(events, "finding_draft")
+    assert len(drafts) == 1
+    draft = drafts[0]["draft"]
+    assert draft["vuln_type"] == "Sensitive Data Exposure"
+    assert "flag" in draft["tags"]
+    assert "agent_found_flag" in draft["description"]
+
+    # No finding was persisted — drafts are proposals only
+    saved = tmp_memory.load_engagement_findings("eng-1")
+    assert len(saved) == 0
+
+
+@pytest.mark.anyio
+async def test_chat_does_not_emit_finding_draft_on_clean_output(tmp_memory, real_registry, fake_provider):
+    """No finding_draft when tool output has no flag pattern."""
+    provider = fake_provider(scripts=[
+        [
+            {"type": "tool_call", "id": "t1", "name": "shell", "arguments": {"command": "ls"}},
+        ],
+    ])
+    agent = PentestAgent(
+        engagement_id="eng-1", target="https://example.com",
+        memory=tmp_memory, registry=real_registry, provider=provider,
+    )
+    agent.registry.register("shell", lambda command: {
+        "stdout": "file1.txt\nfile2.txt",
+        "exit_code": 0, "status": "success",
+    }, dangerous=True)
+
+    events = [event async for event in agent.chat("list files")]
+    drafts = _events_of_type(events, "finding_draft")
+    assert drafts == []
+
+
+def test_compact_summarizes_and_resets_messages(tmp_memory, real_registry, fake_provider):
+    agent = PentestAgent(
+        engagement_id="eng-1", target="http://target",
+        memory=tmp_memory, registry=real_registry, provider=fake_provider(scripts=[]),
+    )
+    agent.messages = [
+        {"role": "user", "content": "find sqli"},
+        {"role": "assistant", "content": None, "tool_calls": [{"id": "1", "name": "nmap_scan", "arguments": {}}]},
+        {"role": "tool", "tool_call_id": "1", "name": "nmap_scan", "content": "open ports"},
+        {"role": "assistant", "content": "Found an open port."},
+        {"role": "assistant", "content": None, "tool_calls": [{"id": "2", "name": "save_finding", "arguments": {}}]},
+        {"role": "tool", "tool_call_id": "2", "name": "save_finding", "content": "{'status': 'saved'}"},
+    ]
+    recap = agent.compact()
+
+    assert "nmap_scan×1" in recap
+    assert "find sqli" in recap
+    assert "Findings saved this session: 1" in recap
+    assert "http://target" in recap
+    # History collapses to a single well-formed user message = the recap.
+    assert len(agent.messages) == 1
+    assert agent.messages[0] == {"role": "user", "content": recap}
+
+
+@pytest.mark.anyio
+async def test_chat_stopped_before_stream_ends_turn_without_tools(tmp_memory, real_registry, fake_provider):
+    from core.control import AgentControl
+
+    provider = fake_provider(scripts=[[{"type": "token", "content": "should not stream"}]])
+    agent = PentestAgent(
+        engagement_id="eng-1", target="https://example.com",
+        memory=tmp_memory, registry=real_registry, provider=provider,
+    )
+    control = AgentControl(phase="collaboration")
+    control.stopped = True  # an interrupt landed before/at the turn start
+
+    events = [event async for event in agent.chat("hi", control)]
+    types = [e["type"] for e in events]
+    assert "stopped" in types
+    assert "token" not in types  # generation was preempted
+    assert events[-1]["type"] == "done"

@@ -32,6 +32,36 @@ def test_trim_always_keeps_at_least_one_message_even_if_over_budget():
     assert trimmed[0]["content"] == "this one alone is already over budget"
 
 
+def test_trim_drops_leading_orphan_tool_message():
+    # After front-trimming, the window must not start on an orphaned tool result
+    # (its assistant tool-call turn is gone) — that breaks weak model templates.
+    manager = ContextManager(max_chars=10_000)
+    messages = [
+        {"role": "tool", "tool_call_id": "1", "name": "x", "content": "orphan result"},
+        {"role": "user", "content": "hello"},
+    ]
+    trimmed = manager.trim(messages)
+    assert trimmed[0]["role"] == "user"
+
+
+def test_trim_drops_leading_assistant_with_tool_calls():
+    manager = ContextManager(max_chars=10_000)
+    messages = [
+        {"role": "assistant", "content": None, "tool_calls": [{"id": "1", "name": "x", "arguments": {}}]},
+        {"role": "tool", "tool_call_id": "1", "name": "x", "content": "r"},
+        {"role": "user", "content": "hi"},
+    ]
+    trimmed = manager.trim(messages)
+    assert trimmed[0]["role"] == "user"
+
+
+def test_trim_keeps_last_message_even_if_it_is_an_orphan():
+    # Never strip below one message, even if that message is itself an orphan.
+    manager = ContextManager(max_chars=10_000)
+    messages = [{"role": "tool", "tool_call_id": "1", "name": "x", "content": "only"}]
+    assert manager.trim(messages) == messages
+
+
 def test_summarize_tool_output_unchanged_under_limit():
     output = "short tool output"
     assert ContextManager.summarize_tool_output(output, max_chars=1500) == output

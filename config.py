@@ -63,6 +63,11 @@ DEBUG = os.getenv("DEBUG", "true").lower() == "true"
 # ──────────────────────────────────────────────
 MAX_SHELL_TIMEOUT = int(os.getenv("MAX_SHELL_TIMEOUT", "30"))
 RECON_TIMEOUT = int(os.getenv("RECON_TIMEOUT", "180"))
+
+# Colon-separated PATH prefixes for subprocess tool execution (tools like
+# nmap, nuclei, httpx typically live in ~/go/bin or /usr/local/bin).
+# Empty means the default: ["~/go/bin", "/usr/local/bin"]
+TOOL_PATH_PREFIXES = os.getenv("TOOL_PATH_PREFIXES", "").split(":") if os.getenv("TOOL_PATH_PREFIXES") else []
 DANGEROUS_COMMANDS_REQUIRE_CONFIRM = os.getenv(
     "DANGEROUS_COMMANDS_REQUIRE_CONFIRM", "true"
 ).lower() == "true"
@@ -78,3 +83,8 @@ DANGEROUS_COMMANDS_REQUIRE_CONFIRM = os.getenv(
 HUMAN_APPROVAL_MODE = os.getenv("HUMAN_APPROVAL_MODE", "all").lower()
 
 DEFAULT_TARGET = os.getenv("TARGET", "")
+
+# ──────────────────────────────────────────────
+# Flag/secret detection
+# ──────────────────────────────────────────────
+FLAG_REGEX = os.getenv("FLAG_REGEX", "")

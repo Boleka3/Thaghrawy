@@ -40,6 +40,10 @@ from mcp_servers.tools.masscan import masscan_scan as _masscan_scan
 from mcp_servers.tools.enum4linux import enum4linux_scan as _enum4linux_scan
 from mcp_servers.tools.upload_test import upload_test as _upload_test
 from mcp_servers.tools.ssrf import ssrf_test as _ssrf_test
+from mcp_servers.tools.headers_audit import headers_audit as _headers_audit
+from mcp_servers.tools.csrf_check import csrf_check as _csrf_check
+from mcp_servers.tools.xxe_test import xxe_test as _xxe_test
+from mcp_servers.tools.jwt_analyze import jwt_analyze as _jwt_analyze
 
 mcp = FastMCP("recon")
 
@@ -436,6 +440,30 @@ def upload_test(url: str, field: str = "file") -> dict:
 def ssrf_test(url: str, param: str, method: str = "GET") -> dict:
     """Test a URL parameter for Server-Side Request Forgery (C2/Delivery phase)."""
     return _ssrf_test(url, param, method)
+
+
+@mcp.tool()
+def headers_audit(url: str, follow_redirects: bool = True) -> dict:
+    """Audit HTTP security headers of a URL — HSTS, CSP, XFO, XCTO, etc (OWASP A05)."""
+    return _headers_audit(url, follow_redirects)
+
+
+@mcp.tool()
+def csrf_check(url: str, follow_redirects: bool = True) -> dict:
+    """Check a URL for CSRF protection on forms (OWASP A01)."""
+    return _csrf_check(url, follow_redirects)
+
+
+@mcp.tool()
+def xxe_test(url: str, method: str = "POST") -> dict:
+    """Test a URL for XXE injection with file-read, SSRF, and SVG payloads (OWASP A05/A08)."""
+    return _xxe_test(url, method)
+
+
+@mcp.tool()
+def jwt_analyze(token: str) -> dict:
+    """Decode and analyze a JWT token for security weaknesses — alg:none, expiry, etc (OWASP A07)."""
+    return _jwt_analyze(token)
 
 
 if __name__ == "__main__":

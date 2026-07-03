@@ -151,6 +151,37 @@ def test_delete_unknown_id_returns_false(tmp_engagements):
     assert tmp_engagements.delete("does-not-exist") is False
 
 
+def test_create_combines_engagements_with_same_target(tmp_engagements):
+    first = tmp_engagements.create(name="First", target="https://dup.com")
+    second = tmp_engagements.create(name="Second", target="https://dup.com")
+    # Same target -> reuse the existing engagement instead of making a duplicate.
+    assert second.id == first.id
+    assert len(tmp_engagements.list()) == 1
+    assert "combined into this engagement" in tmp_engagements.read_log(first.id)
+
+
+def test_create_combines_across_scheme_and_trailing_slash(tmp_engagements):
+    first = tmp_engagements.create(name="First", target="https://dup.com/")
+    second = tmp_engagements.create(name="Second", target="http://DUP.com")
+    third = tmp_engagements.create(name="Third", target="dup.com")
+    assert first.id == second.id == third.id
+    assert len(tmp_engagements.list()) == 1
+
+
+def test_create_combine_unions_new_tech_stack(tmp_engagements):
+    first = tmp_engagements.create(name="First", target="https://dup.com", tech_stack=["nginx"])
+    combined = tmp_engagements.create(name="Second", target="https://dup.com", tech_stack=["nginx", "php"])
+    assert combined.id == first.id
+    assert combined.tech_stack == ["nginx", "php"]
+
+
+def test_create_different_targets_stay_separate(tmp_engagements):
+    a = tmp_engagements.create(name="A", target="https://a.com")
+    b = tmp_engagements.create(name="B", target="https://b.com")
+    assert a.id != b.id
+    assert len(tmp_engagements.list()) == 2
+
+
 def test_independent_instances_use_their_own_base_dir(tmp_path):
     manager_a = EngagementManager(base_dir=str(tmp_path / "a"))
     manager_b = EngagementManager(base_dir=str(tmp_path / "b"))

@@ -58,8 +58,10 @@ def test_search_findings(api_client):
 
 
 def test_search_findings_scoped_to_engagement(api_client):
-    engagement_a = _create_engagement(api_client, name="A")
-    engagement_b = _create_engagement(api_client, name="B")
+    # Distinct targets so they stay separate engagements (same-target engagements
+    # are intentionally combined into one).
+    engagement_a = _create_engagement(api_client, name="A", target="https://a.example.com")
+    engagement_b = _create_engagement(api_client, name="B", target="https://b.example.com")
     api_client.post("/api/findings", json=_finding_payload(engagement_a["id"], id="f-a"))
     api_client.post("/api/findings", json=_finding_payload(engagement_b["id"], id="f-b"))
 

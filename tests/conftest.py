@@ -119,7 +119,22 @@ def real_registry(tmp_memory):
 
 
 @pytest.fixture
-def api_client():
+def api_client(tmp_path, monkeypatch):
+    import config
+
+    # Isolate per-test state: without this the app shares one engagements dir +
+    # chroma store + reports dir for the whole session, so data (and, with
+    # same-target dedup, engagements themselves) leak between tests. Patch the
+    # config paths *before* the app's lifespan runs so BOTH the app.state
+    # singletons and any internal default EngagementManager()/MemoryStore()
+    # (e.g. report generation) agree on the same fresh per-test directories.
+    monkeypatch.setattr(config, "ENGAGEMENTS_DIR", str(tmp_path / "engagements"))
+    monkeypatch.setattr(config, "WORKSPACE_DIR", str(tmp_path / "engagements" / "_workspace"))
+    monkeypatch.setattr(config, "REPORTS_DIR", str(tmp_path / "reports"))
+    monkeypatch.setattr(config, "CHROMA_PERSIST_DIR", str(tmp_path / "chroma"))
+    for _d in (config.ENGAGEMENTS_DIR, config.WORKSPACE_DIR, config.REPORTS_DIR):
+        os.makedirs(_d, exist_ok=True)
+
     from fastapi.testclient import TestClient
 
     import main

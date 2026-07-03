@@ -4,11 +4,30 @@ for direct relay over the chat WebSocket - see api/websocket.py.
 """
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Optional
 
 import config
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+def _strip_hash_from_urls(value: Any) -> Any:
+    """Recursively strip #hash fragments from any string that looks like a URL.
+    Scanner tools choke on hash-fragment URLs (the # part is never sent to the
+    server), so strip them before forwarding to tools.
+    """
+    if isinstance(value, str):
+        return re.sub(r"^((?:https?://)[^#]+)#.*", r"\1", value)
+    if isinstance(value, dict):
+        return {k: _strip_hash_from_urls(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return list(_strip_hash_from_urls(v) for v in value)
+    return value
 from core.context import ContextManager
 from core.control import EDIT, REJECT, STOP, AgentControl
+from core.finding_drafts import flag_findings_from_output
 from core.llm import BaseLLMProvider, get_provider
 from core.tools import ToolRegistry, build_default_registry
 from memory.store import MemoryStore
@@ -48,6 +67,7 @@ class PentestAgent:
         self.control = control
         # Best-effort sink for structured HITL decision records (training data).
         self.on_decision = on_decision
+        self._captured_flags: set[str] = set()
         self.messages: list[dict[str, Any]] = []
 
     def _record_decision(
@@ -71,8 +91,8 @@ class PentestAgent:
                 "rejected": verdict == REJECT,
                 "result": result,
             })
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("on_decision callback failed: %s", exc)
 
     def _record_steps(self, steps: int) -> None:
         """Persist this turn's step count for the AST metric. Best-effort: a
@@ -83,8 +103,8 @@ class PentestAgent:
                 from engagements.manager import EngagementManager
                 manager = EngagementManager()
             manager.record_steps(self.engagement_id, steps)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("record_steps failed: %s", exc)
 
     # Deterministic recon probes run during autonomous enumeration. Kept small
     # and reliable: nuclei is the richest structured source of easy misconfig /
@@ -92,6 +112,7 @@ class PentestAgent:
     # recon_only registries).
     ENUMERATION_PROBES: list[tuple[str, dict[str, Any]]] = [
         ("nuclei_scan", {}),
+        ("headers_audit", {}),
     ]
 
     async def enumerate(self) -> AsyncIterator[dict[str, Any]]:
@@ -99,7 +120,7 @@ class PentestAgent:
         auto-ingest the easy structured findings (no LLM, no approvals), then
         hand off to the human for collaboration. Yields tool_call / tool_result /
         finding_saved / handoff / done events."""
-        from core.finding_drafts import finding_from_tool_result
+        from core.finding_drafts import finding_from_tool_result, flag_findings_from_output
         from core.tools import persist_finding
 
         yield {"type": "phase", "phase": "enumeration"}
@@ -125,8 +146,8 @@ class PentestAgent:
         if self.engagement_manager is not None:
             try:
                 self.engagement_manager.update(self.engagement_id, phase="collaboration")
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("Failed to update engagement phase to collaboration: %s", exc)
         yield {
             "type": "handoff",
             "findings_saved": saved,
@@ -165,12 +186,19 @@ class PentestAgent:
         self.messages = self.context.trim(self.messages)
 
         step_count = 0
+        read_file_count = 0
+        MAX_READ_FILE_PER_TURN = 3
         for _ in range(MAX_TOOL_ITERATIONS):
             assistant_text = ""
             pending_tool_calls: list[dict[str, Any]] = []
 
             try:
                 async for event in self.provider.stream(self.messages, system_prompt, self.registry.schemas()):
+                    # Preempt a running turn: an interrupt/stop cuts token
+                    # generation at the next boundary rather than waiting for the
+                    # whole reply (or the next tool-call gate).
+                    if control is not None and control.stopped:
+                        break
                     if event["type"] == "token":
                         assistant_text += event["content"]
                         yield event
@@ -180,6 +208,14 @@ class PentestAgent:
             except Exception as e:
                 yield {"type": "error", "message": f"LLM call failed: {e}"}
                 return
+
+            if control is not None and control.stopped:
+                # Interrupted mid-generation: keep any partial text, end the turn
+                # cleanly (don't run tools). The queued follow-up runs next.
+                if assistant_text:
+                    self.messages.append({"role": "assistant", "content": assistant_text})
+                yield {"type": "stopped", "reason": "human"}
+                break
 
             if not pending_tool_calls:
                 if assistant_text:
@@ -242,10 +278,44 @@ class PentestAgent:
                             "arguments": arguments,
                         }
 
+                # Strip URL hash fragments — scanners choke on #/path?q= URLs
+                arguments = _strip_hash_from_urls(arguments)
+
+                # Cap read_file calls per turn to avoid burning the tool budget.
+                if call["name"] == "read_file":
+                    read_file_count += 1
+                    if read_file_count > MAX_READ_FILE_PER_TURN:
+                        result = {
+                            "status": "error",
+                            "error": f"Read-file limit ({MAX_READ_FILE_PER_TURN}) hit — "
+                            "tool output was already returned above; read_file is unnecessary.",
+                        }
+                        yield {"type": "tool_result", "tool": call["name"], "output": result}
+                        self.messages.append({
+                            "role": "tool",
+                            "tool_call_id": call["id"],
+                            "name": call["name"],
+                            "content": "[read_file skipped: limit reached. Use the scanner output already in context.]",
+                        })
+                        continue
+
                 result = await self.registry.execute(call["name"], arguments)
                 step_count += 1
                 yield {"type": "step", "count": step_count, "tool": call["name"]}
                 yield {"type": "tool_result", "tool": call["name"], "output": result}
+
+                # Flag/secret detection — propose drafts, don't auto-save
+                for draft in flag_findings_from_output(
+                    call["name"], result, self.engagement_id, self.target,
+                ):
+                    match = draft.description.split(": ", 1)[-1] if ": " in draft.description else ""
+                    if match and match not in self._captured_flags:
+                        self._captured_flags.add(match)
+                        yield {
+                            "type": "finding_draft",
+                            "draft": draft.model_dump(),
+                            "note": f"flag/secret detected in {call['name']} output",
+                        }
 
                 is_save = call["name"] in ("save_finding", "save_technique")
                 if is_save and isinstance(result, dict) and result.get("status") == "saved":
@@ -267,3 +337,50 @@ class PentestAgent:
 
         self._record_steps(step_count)
         yield {"type": "done", "steps": step_count}
+
+    def compact(self) -> str:
+        """Deterministically summarize the running conversation and replace the
+        message history with a single compact recap. No LLM call — reliable even
+        when the provider is flaky. Keeps the context small and well-formed so a
+        long tool-calling turn can't blow the budget or leave a malformed window
+        that breaks the model's chat template. Returns the recap text."""
+        from collections import Counter
+
+        tool_counts: Counter = Counter()
+        user_msgs: list[str] = []
+        findings_saved = 0
+        last_assistant = ""
+        for m in self.messages:
+            role = m.get("role")
+            if role == "user":
+                content = str(m.get("content", "")).strip()
+                # Skip prior compaction markers and operator-run tool echoes;
+                # keep only genuine human instructions.
+                if content and not content.startswith(("[Session summary", "[operator ran")):
+                    user_msgs.append(content)
+            elif role == "assistant":
+                for call in (m.get("tool_calls") or []):
+                    tool_counts[call.get("name", "?")] += 1
+                text = str(m.get("content") or "").strip()
+                if text:
+                    last_assistant = text
+            elif role == "tool":
+                if m.get("name") in ("save_finding", "save_technique") and "saved" in str(m.get("content", "")):
+                    findings_saved += 1
+
+        def _trunc(s: str, n: int) -> str:
+            s = " ".join(s.split())
+            return s if len(s) <= n else s[:n] + "…"
+
+        tools_line = ", ".join(f"{name}×{n}" for name, n in tool_counts.most_common()) or "none"
+        instructions = " | ".join(_trunc(u, 200) for u in user_msgs[-5:]) or "(none)"
+        recap = (
+            "[Session summary — compacted]\n"
+            f"Target: {self.target}\n"
+            f"Instructions so far: {_trunc(instructions, 600)}\n"
+            f"Tools run: {tools_line}\n"
+            f"Findings saved this session: {findings_saved}\n"
+            f"Last agent note: {_trunc(last_assistant, 500) or '(none)'}"
+        )
+        self.messages = [{"role": "user", "content": recap}]
+        return recap

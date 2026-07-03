@@ -133,6 +133,13 @@ def _make_search_memory(memory: MemoryStore):
     return search_memory
 
 
+def _finding_key(finding: "Finding") -> str:
+    """Normalized dedup key: lowercased title + target (vuln_type omitted
+    because the agent is inconsistent with it across runs).
+    """
+    return f"{finding.title.strip().lower()}|{finding.target.strip().lower()}"
+
+
 def persist_finding(
     memory: MemoryStore,
     finding: "Finding",
@@ -141,8 +148,17 @@ def persist_finding(
     """Single write path for a confirmed finding: store it in memory AND bump
     the engagement's findings_count. Both the agent's save_finding tool and the
     POST /api/findings route call this so the count can't diverge between them.
+
+    Deduplicates: if a finding with the same normalized title already exists
+    for this target in the engagement, the new one is skipped.
     """
     from engagements.manager import EngagementManager
+
+    # Dedup: skip if same normalized title+target already exists in this engagement.
+    existing = memory.load_engagement_findings_as_models(finding.engagement_id)
+    new_key = _finding_key(finding)
+    if any(_finding_key(e) == new_key for e in existing):
+        return
 
     memory.add_finding(finding)
     (manager or EngagementManager()).increment_findings_count(finding.engagement_id)
@@ -304,6 +320,8 @@ _RECON_TOOL_NAMES = (
     "list_workspace", "read_file", "grep_workspace",
     # Kill chain — Delivery / C2
     "upload_test", "ssrf_test",
+    # OWASP Top 10 coverage
+    "headers_audit", "csrf_check", "xxe_test", "jwt_analyze",
 )
 _EXPLOIT_TOOL_NAMES = (
     "sqlmap_scan", "nikto_scan", "hydra_bruteforce",
@@ -311,6 +329,7 @@ _EXPLOIT_TOOL_NAMES = (
     "dalfox_scan", "wapiti_scan",
     # Kill chain — Post-Exploitation
     "linux_privesc_check", "credential_search",
+    "netexec_scan",
 )
 
 

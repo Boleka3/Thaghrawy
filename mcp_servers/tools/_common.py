@@ -28,7 +28,7 @@ os.makedirs(WORKSPACE_DIR, exist_ok=True)
 # Security tool binaries (Go/system) must come before the venv on PATH so
 # that wrappers like the Python httpx CLI don't shadow the projectdiscovery
 # httpx binary. We prepend known go/system bin dirs here.
-_TOOL_PATH_PREFIXES = [
+_TOOL_PATH_PREFIXES = config.TOOL_PATH_PREFIXES or [
     os.path.expanduser("~/go/bin"),
     "/usr/local/bin",
 ]

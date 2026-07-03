@@ -140,10 +140,26 @@ def test_persist_finding_increments_engagement_count(tmp_memory, tmp_engagements
 
     engagement = tmp_engagements.create(name="E", target="https://e.com")
     persist_finding(tmp_memory, make_finding(engagement_id=engagement.id), tmp_engagements)
-    persist_finding(tmp_memory, make_finding(id="f2", engagement_id=engagement.id), tmp_engagements)
+    persist_finding(
+        tmp_memory,
+        make_finding(id="f2", engagement_id=engagement.id, title="XSS in profile", vuln_type="XSS"),
+        tmp_engagements,
+    )
 
     assert tmp_engagements.get(engagement.id).findings_count == 2
     assert len(tmp_memory.load_engagement_findings(engagement.id)) == 2
+
+
+def test_persist_finding_deduplicates_duplicate_title_target(monkeypatch, tmp_memory, tmp_engagements, make_finding):
+    """Same title + target should be deduped (second save is a no-op; vuln_type ignored)."""
+    from core.tools import persist_finding
+
+    engagement = tmp_engagements.create(name="E", target="https://e.com")
+    persist_finding(tmp_memory, make_finding(engagement_id=engagement.id), tmp_engagements)
+    persist_finding(tmp_memory, make_finding(engagement_id=engagement.id), tmp_engagements)
+
+    assert tmp_engagements.get(engagement.id).findings_count == 1
+    assert len(tmp_memory.load_engagement_findings(engagement.id)) == 1
 
 
 def test_make_save_finding_increments_count(tmp_memory, tmp_engagements):

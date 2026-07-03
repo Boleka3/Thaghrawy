@@ -1,6 +1,12 @@
+import json
+
 import pytest
 
-from core.finding_drafts import finding_from_tool_result, normalize_vuln_type
+from core.finding_drafts import (
+    finding_from_tool_result,
+    flag_findings_from_output,
+    normalize_vuln_type,
+)
 
 
 # ── vuln_type normalization ──
@@ -104,8 +110,71 @@ def test_non_json_string_result_yields_nothing():
 
 def test_json_string_result_is_parsed():
     # MCP tool wrappers return json.dumps(...), i.e. a STRING, not a dict.
-    import json
     raw = json.dumps({"findings": [{"template": "missing-csp", "severity": "low", "matched": "http://t/"}]})
     findings = finding_from_tool_result("nuclei_scan", raw, "eng-1", "http://t")
     assert len(findings) == 1
     assert findings[0].vuln_type == "Security Misconfiguration"
+
+
+# ── flag/secret detection ──
+
+
+def test_flag_findings_from_output_picoctf():
+    result = "The flag is picoCTF{Pat!3nt_15_Th3_K3y_dcffa92e}"
+    findings = flag_findings_from_output("shell", result, "eng-1", "http://t")
+    assert len(findings) == 1
+    assert findings[0].vuln_type == "Sensitive Data Exposure"
+    assert "flag" in findings[0].tags
+    assert "picoCTF{Pat!3nt_15_Th3_K3y_dcffa92e}" in findings[0].description
+
+
+def test_flag_findings_from_output_ctf_format():
+    result = "CTF{some_flag_value}"
+    findings = flag_findings_from_output("shell", result, "eng-1", "http://t")
+    assert len(findings) == 1
+
+
+def test_flag_findings_from_output_flag_format():
+    result = "flag{th1s_1s_4_fl4g}"
+    findings = flag_findings_from_output("shell", result, "eng-1", "http://t")
+    assert len(findings) == 1
+
+
+def test_flag_findings_from_output_clean_yields_nothing():
+    result = "No secrets here, just normal output."
+    findings = flag_findings_from_output("shell", result, "eng-1", "http://t")
+    assert findings == []
+
+
+def test_flag_findings_from_output_dedup():
+    result = "picoCTF{dup} and picoCTF{dup} again"
+    findings = flag_findings_from_output("shell", result, "eng-1", "http://t")
+    assert len(findings) == 1
+
+
+def test_flag_findings_from_output_multiple_unique():
+    result = "First: picoCTF{flag1} and then CTF{flag2}"
+    findings = flag_findings_from_output("shell", result, "eng-1", "http://t")
+    assert len(findings) == 2
+
+
+def test_flag_findings_from_output_dict_result():
+    result = {"stdout": "picoCTF{embedded_in_dict}", "exit_code": 0}
+    findings = flag_findings_from_output("shell", result, "eng-1", "http://t")
+    assert len(findings) == 1
+
+
+def test_flag_findings_from_output_technique_used_tool_name():
+    result = "picoCTF{from_dalfox}"
+    findings = flag_findings_from_output("dalfox_scan", result, "eng-1", "http://t")
+    assert findings[0].technique_used == "dalfox_scan"
+
+
+def test_finding_from_tool_result_shell_with_flag():
+    """Shell results with flags now get findings via flag_findings_from_output."""
+    result = {"stdout": "picoCTF{shell_captured_flag}", "exit_code": 0, "status": "success"}
+    findings = finding_from_tool_result("shell", result, "eng-1", "http://t")
+    assert len(findings) == 1
+    assert findings[0].vuln_type == "Sensitive Data Exposure"
+    assert "flag" in findings[0].tags
+    assert findings[0].technique_used == "shell"

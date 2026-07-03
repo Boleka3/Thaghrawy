@@ -5,8 +5,9 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from api.deps import get_engagements
+from api.deps import get_engagements, get_memory
 from engagements.manager import EngagementManager
+from memory.store import MemoryStore
 
 router = APIRouter(prefix="/api/engagements", tags=["engagements"])
 
@@ -20,6 +21,8 @@ class CreateEngagementRequest(BaseModel):
 
 
 class UpdateEngagementRequest(BaseModel):
+    name: Optional[str] = None
+    target: Optional[str] = None
     notes: Optional[str] = None
     tech_stack: Optional[list[str]] = None
     scope: Optional[str] = None
@@ -72,8 +75,24 @@ def get_engagement_log(engagement_id: str, manager: EngagementManager = Depends(
     return {"engagement_id": engagement_id, "log": manager.read_log(engagement_id)}
 
 
+@router.get("/{engagement_id}/chat")
+def get_engagement_chat(engagement_id: str, manager: EngagementManager = Depends(get_engagements)):
+    """Persisted chat transcript (list of UI events) for replay when the
+    engagement is selected in the web UI."""
+    return manager.read_chat_events(engagement_id)
+
+
 @router.delete("/{engagement_id}")
-def delete_engagement(engagement_id: str, manager: EngagementManager = Depends(get_engagements)):
+def delete_engagement(
+    engagement_id: str,
+    manager: EngagementManager = Depends(get_engagements),
+    memory: MemoryStore = Depends(get_memory),
+):
+    # Purge the engagement's findings too, so deleting from the UI doesn't leave
+    # orphaned findings stranded in the vector store.
+    findings = memory.load_engagement_findings(engagement_id)
     if not manager.delete(engagement_id):
         raise HTTPException(status_code=404, detail="Engagement not found")
-    return {"status": "deleted"}
+    for f in findings:
+        memory.delete_finding(f["id"])
+    return {"status": "deleted", "findings_removed": len(findings)}

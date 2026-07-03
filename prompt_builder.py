@@ -2,8 +2,10 @@
 once per turn - this is the single place memory context gets injected."""
 from __future__ import annotations
 
+import os
 from typing import Any, Optional
 
+import config
 from skills import methodology_reference
 
 BASE_PROMPT = "You are Thaghrawy, an autonomous AI penetration testing assistant."
@@ -28,11 +30,24 @@ class SystemPromptBuilder:
     """Builds the system prompt for a single agent turn: target scope,
     constraints, retrieved memory, and any extra context blocks."""
 
-    def __init__(self, target: str):
+    def __init__(self, target: str, skill_filter: Optional[list[str]] = None):
         self.target = target
+        self.skill_filter = skill_filter or self._resolve_skill_filter(target)
         self.constraints: list[str] = list(DEFAULT_CONSTRAINTS)
         self.memory_notes: list[str] = []
         self.extra_sections: list[str] = []
+
+    @staticmethod
+    def _resolve_skill_filter(target: str) -> Optional[list[str]]:
+        """Determine skill filter from SKILL_FILTER env var or target heuristics."""
+        env_filter = os.getenv("SKILL_FILTER", "").strip()
+        if env_filter:
+            return [s.strip() for s in env_filter.split(",") if s.strip()]
+        # If no explicit filter, use target heuristics for CXF-style engagements.
+        low = target.lower()
+        if any(kw in low for kw in ("ctf", "challenge", "capture the flag", "picoctf", "hackthebox")):
+            return ["recon", "vuln_scan", "exploit", "ctf_web", "report"]
+        return None  # all skills
 
     def add_constraint(self, rule: str) -> None:
         self.constraints.append(rule)
@@ -64,7 +79,7 @@ class SystemPromptBuilder:
         sections = [
             BASE_PROMPT,
             MEMORY_INSTRUCTIONS,
-            f"\n{methodology_reference()}",
+            f"\n{methodology_reference(self.skill_filter)}",
             f"\nSCOPE: {self.target}",
             "\nCONSTRAINTS:",
             "\n".join(f"- {c}" for c in self.constraints),
@@ -79,9 +94,10 @@ def build_system_prompt(
     target: str,
     memory_hits: Optional[dict[str, list[dict[str, Any]]]] = None,
     extra_sections: Optional[list[str]] = None,
+    skill_filter: Optional[list[str]] = None,
 ) -> str:
     """Convenience wrapper used by core/agent.py."""
-    builder = SystemPromptBuilder(target)
+    builder = SystemPromptBuilder(target, skill_filter=skill_filter)
     if memory_hits:
         builder.add_memory_hits(memory_hits.get("findings", []), memory_hits.get("techniques", []))
     for section in extra_sections or []:

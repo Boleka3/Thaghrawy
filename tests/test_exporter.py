@@ -92,6 +92,32 @@ def test_build_dataset_preference_uses_only_trajectories(make_finding):
 # ── end-to-end through the stores ──
 
 
+def test_flag_finding_to_messages_example(make_finding):
+    f = make_finding(
+        title="picoCTF flag captured: picoCTF{test_flag}",
+        vuln_type="Sensitive Data Exposure",
+        technique_used="shell",
+        tags=["flag", "auto-ingested"],
+    )
+    ex = finding_to_example(f, fmt="messages")
+    completion = json.loads(ex["messages"][2]["content"])
+    assert completion["vuln_type"] == "Sensitive Data Exposure"
+    assert "picoCTF" in completion["title"]
+
+
+def test_flag_finding_to_sft_example(make_finding):
+    f = make_finding(
+        title="Secret/flag captured: picoCTF{an0th3r_fl4g}",
+        vuln_type="Sensitive Data Exposure",
+        technique_used="shell",
+        tags=["flag", "auto-ingested"],
+    )
+    ex = finding_to_example(f, fmt="sft")
+    assert set(ex) == {"prompt", "completion"}
+    completion = json.loads(ex["completion"])
+    assert completion["vuln_type"] == "Sensitive Data Exposure"
+
+
 def test_export_roundtrip_via_stores(tmp_memory, tmp_engagements, make_finding):
     tmp_memory.add_finding(make_finding(id="f1", engagement_id="e1"))
     eng_id = "e1"

@@ -54,3 +54,25 @@ def test_build_system_prompt_includes_extra_sections():
 def test_build_system_prompt_without_extra_sections_omits_nothing_unexpected():
     prompt = build_system_prompt("https://acme.example.com", extra_sections=None)
     assert prompt.count("SCOPE:") == 1
+
+
+def test_build_system_prompt_skill_filter_includes_only_ctf_skills():
+    prompt = build_system_prompt("https://ctf.example.com", skill_filter=["ctf_web", "recon", "exploit"])
+    assert "CTF Web Exploitation" in prompt
+    assert "Reporting" not in prompt
+    assert "Vulnerability Scanning" not in prompt
+
+
+def test_system_prompt_builder_resolves_ctf_target():
+    from prompt_builder import SystemPromptBuilder
+    builder = SystemPromptBuilder("picoctf.org")
+    assert builder.skill_filter is not None
+    assert "ctf_web" in builder.skill_filter
+    assert "recon" in builder.skill_filter
+
+
+def test_system_prompt_builder_skill_filter_env(monkeypatch):
+    from prompt_builder import SystemPromptBuilder
+    monkeypatch.setenv("SKILL_FILTER", "ctf_web,recon")
+    builder = SystemPromptBuilder("any-target.com")
+    assert builder.skill_filter == ["ctf_web", "recon"]

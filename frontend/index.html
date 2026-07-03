@@ -4,15 +4,17 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Thaghrawy</title>
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/style.css?v=7" />
+<link rel="stylesheet" href="/static/style.css?v=10" />
 </head>
 <body>
 <div class="app">
   <header class="topbar">
     <span class="brand">THAG<span class="brand-accent">HRAWY</span></span>
     <span id="engagement-label" class="engagement-label">no engagement selected</span>
+    <button id="guide-btn" class="guide-btn" title="How to use the harness">? Guide</button>
   </header>
 
   <main class="panels">
@@ -25,8 +27,9 @@
           <option value="full_analysis">Full Analysis</option>
           <option value="recon_only">Recon Only</option>
         </select>
-        <button id="new-engagement-btn">[+] NEW</button>
+        <button id="new-engagement-btn" class="primary-btn">[+] NEW</button>
       </div>
+      <div id="engagements-loading" class="panel-loading hidden">loading...</div>
       <div class="section-label">ACTIVE</div>
       <ul id="active-engagements" class="engagement-list"></ul>
       <div class="section-label">PAST</div>
@@ -37,11 +40,13 @@
       <h2>AGENT CHAT</h2>
       <div id="phase-banner" class="phase-banner">PHASE: —</div>
       <div class="chat-controls">
-        <button id="enumerate-btn" title="Run the autonomous enumeration sweep">&#9654; Enumerate</button>
-        <button id="stop-btn" title="Halt the current turn">&#9632; Stop</button>
-        <button id="run-tool-btn" title="Run a tool yourself">&#9881; Run tool</button>
-        <button id="report-btn" title="Generate both reports">&#128196; Report</button>
-        <button id="tools-btn" title="List available tools">&#128295; Tools</button>
+        <button id="enumerate-btn" title="Run the autonomous enumeration sweep" disabled> Enumerate</button>
+        <button id="stop-btn" title="Halt the current turn" disabled> Stop</button>
+        <button id="run-tool-btn" title="Run a tool yourself"> Run tool</button>
+        <button id="report-btn" title="Generate both reports" disabled> Report</button>
+        <button id="tools-btn" title="List available tools"> Tools</button>
+        <button id="compact-btn" title="Summarize + shrink the session context" disabled> Compact</button>
+        <button id="interrupt-btn" title="Halt the current turn and send new instructions" disabled> Interrupt</button>
         <button id="help-btn" title="List slash commands">? Help</button>
       </div>
       <div id="run-tool-form" class="run-tool-form hidden">
@@ -49,7 +54,12 @@
         <input id="run-tool-args" autocomplete="off" placeholder='args JSON e.g. {"target":"http://x"}' />
         <button id="run-tool-go">run</button>
       </div>
+      <div id="interrupt-form" class="run-tool-form hidden">
+        <input id="interrupt-text" autocomplete="off" placeholder="halt + tell the agent what to do instead..." />
+        <button id="interrupt-go">interrupt</button>
+      </div>
       <div id="chat-log" class="chat-log"></div>
+      <div id="scroll-lock-hint" class="scroll-lock-hint hidden"> scrolled — auto-scroll paused</div>
       <div class="chat-input-row">
         <span class="prompt-caret">&gt;</span>
         <input id="chat-input" autocomplete="off" placeholder="ask the agent, or /help ..." />
@@ -58,12 +68,24 @@
 
     <section class="panel panel-findings">
       <h2>FINDINGS</h2>
+      <div id="findings-loading" class="panel-loading hidden">loading...</div>
       <ul id="findings-list" class="findings-list"></ul>
-      <button id="add-finding-btn">[+] Add Finding</button>
+      <button id="add-finding-btn" class="primary-btn" disabled>[+] Add Finding</button>
 
       <div class="section-label">REPORTS</div>
+      <div id="reports-loading" class="panel-loading hidden">loading...</div>
       <ul id="reports-list" class="reports-list"></ul>
-      <button id="generate-reports-btn">[+] Generate Reports</button>
+      <button id="generate-reports-btn" disabled>[+] Generate Reports</button>
+
+      <div class="section-label">TRAINING DATA</div>
+      <div class="training-export">
+        <select id="train-format">
+          <option value="messages">messages</option>
+          <option value="sft">sft</option>
+          <option value="preference">preference</option>
+        </select>
+        <button id="export-training-btn"> Export</button>
+      </div>
     </section>
   </main>
 
@@ -73,6 +95,92 @@
   </footer>
 </div>
 
-<script src="/static/app.js?v=7"></script>
+<!-- Toast container -->
+<div id="toast-container" class="toast-container"></div>
+
+<!-- Reusable modal -->
+<div id="modal-overlay" class="modal-overlay hidden">
+  <div class="modal-card">
+    <div class="modal-head">
+      <h2 id="modal-title">Modal</h2>
+      <button id="modal-close" class="mini" title="Close">&#10005;</button>
+    </div>
+    <div id="modal-body" class="modal-body"></div>
+    <div id="modal-actions" class="modal-actions"></div>
+  </div>
+</div>
+
+<!-- Guide overlay -->
+<div id="guide-overlay" class="overlay hidden">
+  <div class="overlay-card">
+    <div class="overlay-head">
+      <h2>How to use Thaghrawy</h2>
+      <button id="guide-close" class="mini" title="Close">&#10005;</button>
+    </div>
+    <div class="overlay-body">
+      <p>Thaghrawy is an AI-assisted penetration-testing harness with persistent,
+      cross-engagement memory. You drive it against your <em>own authorized</em> targets;
+      the agent runs ~40 security tools, and you stay in the loop.</p>
+
+      <h3>1. Engagements (left panel)</h3>
+      <ul>
+        <li><strong>Create</strong> — enter a name + target, pick a mode, hit <code>[+] NEW</code>.
+          <em>Recon Only</em> withholds the exploitation tools entirely.</li>
+        <li><strong>Select</strong> — click an engagement's name. Each engagement has its own
+          chat, findings, and reports; switching swaps the whole workspace.</li>
+        <li><strong>Edit / Delete</strong> — the <code>edit</code> and <code>del</code> buttons on
+          each row rename/retarget or remove it (delete also removes its findings).</li>
+        <li>Creating an engagement for a target that already exists <strong>reuses</strong> that
+          engagement, so work for one target stays together.</li>
+      </ul>
+
+      <h3>2. Workflow (phase banner)</h3>
+      <p><strong>Enumeration &rarr; Collaboration &rarr; Reporting.</strong> Hit <code>Enumerate</code>
+      to run an autonomous recon sweep that auto-ingests easy findings, then hands off to you.
+      In <em>collaboration</em>, every tool call the model proposes waits for your approval.</p>
+
+      <h3>3. Chatting with the agent</h3>
+      <p>Type in the bottom input to instruct the agent. It streams its reasoning, proposes
+      tool calls, and (in collaboration) pauses for <strong>approve / reject / edit</strong>.
+      Use <code>/auto safe</code> or <code>/auto all</code> to stop clicking; <code>/auto off</code>
+      to resume gating.</p>
+
+      <h3>4. Running a tool yourself</h3>
+      <p><code>Tools</code> lists every tool (click a name to fill the form).
+      <code>Run tool</code> opens a form: tool name + JSON args (e.g.
+      <code>{"target":"http://juice-shop:3000"}</code>). The result is fed back to the model.</p>
+
+      <h3>5. Interrupt &amp; Compact</h3>
+      <ul>
+        <li><code>Interrupt</code> — halt the current turn <em>and</em> send a new
+          instruction in one go. (<code>Stop</code> just halts.)</li>
+        <li><code>Compact</code> — summarize the session and shrink the context.
+          Use it when a long turn gets slow or the model starts erroring on a bloated context.</li>
+      </ul>
+
+      <h3>6. Findings &amp; reports (right panel)</h3>
+      <p>Findings collect on the right. Click a finding to see its full details. On any tool result,
+      <code>&rarr;finding</code> promotes it into a reviewable finding; <code>edit</code> curates it;
+      <code>FP</code> marks a false positive. <code>Report</code> (or <code>[+] Generate Reports</code>)
+      builds a technical and an executive report you can download.</p>
+
+      <h3>Slash commands</h3>
+      <p><code>/help</code> <code>/tools</code> <code>/run &lt;tool&gt; {json}</code>
+      <code>/enumerate</code> <code>/suggest</code> <code>/draft</code> <code>/promote</code>
+      <code>/approve</code> <code>/reject</code> <code>/edit</code> <code>/auto off|safe|all</code>
+      <code>/phase collab|report</code> <code>/report</code> <code>/compact</code>
+      <code>/interrupt &lt;text&gt;</code> <code>/stop</code></p>
+
+      <h3>Keyboard shortcuts</h3>
+      <ul>
+        <li><code>Ctrl+`</code> — focus chat input</li>
+        <li><code>Ctrl+Enter</code> — send message</li>
+        <li><code>Escape</code> — close modal / toast</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<script src="/static/app.js?v=10"></script>
 </body>
 </html>

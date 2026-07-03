@@ -43,6 +43,12 @@ def index():
     return FileResponse("frontend/index.html")
 
 
+@app.get("/favicon.ico")
+def favicon():
+    # Browsers hard-request /favicon.ico; serve the SVG mark for them too.
+    return FileResponse("frontend/favicon.svg", media_type="image/svg+xml")
+
+
 if __name__ == "__main__":
     import uvicorn
 

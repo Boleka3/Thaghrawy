@@ -57,6 +57,33 @@ def test_patch_unknown_engagement_404(api_client):
     assert response.status_code == 404
 
 
+def test_patch_updates_name_and_target(api_client):
+    created = api_client.post("/api/engagements", json={"name": "Old", "target": "https://old.com"}).json()
+    response = api_client.patch(
+        f"/api/engagements/{created['id']}", json={"name": "New", "target": "https://new.com"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["name"] == "New"
+    assert body["target"] == "https://new.com"
+
+
+def test_delete_engagement_also_removes_its_findings(api_client):
+    created = api_client.post("/api/engagements", json={"name": "X", "target": "https://x.com"}).json()
+    finding = {
+        "id": "f-del", "title": "SQLi", "severity": "high", "vuln_type": "SQL Injection",
+        "description": "d", "reproduction_steps": "r", "technique_used": "sqlmap",
+        "target": "https://x.com", "engagement_id": created["id"], "date": "2026-06-01",
+    }
+    api_client.post("/api/findings", json=finding)
+    assert len(api_client.get(f"/api/findings/engagement/{created['id']}").json()) == 1
+
+    response = api_client.delete(f"/api/engagements/{created['id']}")
+    assert response.status_code == 200
+    assert response.json()["findings_removed"] == 1
+    # Findings are gone from the store, not just the engagement record.
+    assert api_client.get(f"/api/findings/engagement/{created['id']}").json() == []
+
+
 def test_close_engagement(api_client):
     created = api_client.post("/api/engagements", json={"name": "X", "target": "https://x.com"}).json()
     response = api_client.post(f"/api/engagements/{created['id']}/close")

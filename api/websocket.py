@@ -11,20 +11,24 @@ run over the persisted per-engagement agent:
               tools, …) so nothing races on the shared agent.messages history.
 
 Events relayed to the client: memory_hit, token, tool_call, tool_call_pending,
-tool_result, tool_rejected, tool_edited, finding_saved, step, stopped, phase,
-help, info, done, error.
+tool_result, tool_rejected, tool_edited, finding_draft, finding_saved, step,
+stopped, phase, help, info, done, error.
 """
 from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from api.deps import _get_or_create_agent
 from core.agent import PentestAgent
 from core.control import APPROVE, EDIT, REJECT, STOP, AgentControl
+from core.finding_drafts import finding_from_tool_result, flag_findings_from_output
 
 router = APIRouter()
 
@@ -41,6 +45,8 @@ _HELP = [
     "/auto off|safe|all — change what auto-approves this turn",
     "/report — generate both reports",
     "/tools — list available tools",
+    "/compact — summarize + shrink the session context",
+    "/interrupt <text> — halt the current turn and send new instructions",
     "/stop — halt the current turn",
     "/help — show this list",
 ]
@@ -105,6 +111,10 @@ def _parse_slash(raw: str) -> dict[str, Any]:
         return {"type": "report"}
     if cmd == "tools":
         return {"type": "list_tools"}
+    if cmd == "compact":
+        return {"type": "compact"}
+    if cmd == "interrupt":
+        return {"type": "interrupt", "text": rest}
     if cmd == "stop":
         return {"type": STOP}
     if cmd == "help":
@@ -128,24 +138,149 @@ def _parse_frame(raw: str) -> dict[str, Any]:
 
 _CONTROL_TYPES = {APPROVE, REJECT, EDIT, "set_auto_approve"}
 
+# Event types worth persisting to the engagement transcript for replay. Streaming
+# tokens are aggregated into a single `agent_message` instead (see _Emitter); the
+# `user` line is written separately. Transient UI-only events (memory_hit, step,
+# tool_call_pending, help, tools) are not persisted.
+_PERSIST_TYPES = {
+    "tool_call", "tool_result", "tool_edited", "tool_rejected", "finding_saved",
+    "handoff", "phase", "report_ready", "assistant_suggestion", "info", "error",
+}
+
+
+def _user_echo(msg: dict[str, Any]) -> str | None:
+    """A friendly one-line echo of what the operator did, for the transcript, so
+    a replayed conversation shows the human's side. None for items with no echo."""
+    t = msg.get("type")
+    if t == "chat":
+        return msg.get("text", "")
+    if t == "ask":
+        return "/draft" if msg.get("mode") == "draft_finding" else "/suggest"
+    if t == "promote":
+        ref = msg.get("ref")
+        return f"/promote {ref}" if ref else "/promote"
+    if t == "run_tool":
+        return f"/run {msg.get('tool', '')} {json.dumps(msg.get('arguments') or {})}".rstrip()
+    if t == "enumerate":
+        return "/enumerate"
+    if t == "report":
+        return "/report"
+    return None
+
+
+class _Emitter:
+    """Sends events to the browser and persists a curated subset to the
+    engagement transcript so the chat can be restored on reselect/reload.
+
+    Streamed model tokens are buffered and flushed as one `agent_message` (never
+    sent — the live tokens already were). Also remembers the last tool_result so
+    `/promote` can act on it."""
+
+    def __init__(self, ws: WebSocket, agent: PentestAgent) -> None:
+        self._ws = ws
+        self._manager = agent.engagement_manager
+        self._eid = agent.engagement_id
+        self._buf: list[str] = []
+        self.last_tool: tuple[str, Any] | None = None
+
+    def _persist(self, event: dict[str, Any]) -> None:
+        if self._manager is not None:
+            self._manager.append_chat_event(self._eid, event)
+
+    def flush(self) -> None:
+        """Persist any buffered streamed model text as a single agent_message."""
+        if self._buf:
+            text = "".join(self._buf)
+            self._buf = []
+            if text.strip():
+                self._persist({"type": "agent_message", "content": text})
+
+    def persist_user(self, text: str) -> None:
+        if text:
+            self._persist({"type": "user", "text": text})
+
+    async def __call__(self, event: dict[str, Any]) -> None:
+        await self._ws.send_json(event)
+        etype = event.get("type")
+        if etype == "token":
+            self._buf.append(event.get("content", ""))
+            return
+        # Any non-token event ends the current streamed assistant run.
+        self.flush()
+        if etype == "tool_result":
+            self.last_tool = (event.get("tool", ""), event.get("output"))
+        if etype in _PERSIST_TYPES:
+            self._persist(event)
+
 
 async def _handle_work(
-    ws: WebSocket, agent: PentestAgent, control: AgentControl, msg: dict[str, Any]
+    emit: _Emitter, agent: PentestAgent, control: AgentControl, msg: dict[str, Any]
 ) -> None:
     """Process one queued work item (anything that touches agent state)."""
     mtype = msg.get("type")
 
+    echo = _user_echo(msg)
+    if echo is not None:
+        emit.persist_user(echo)
+
     if mtype == "chat":
         control.begin_turn()
         async for event in agent.chat(msg.get("text", ""), control):
-            await ws.send_json(event)
+            await emit(event)
+        emit.flush()
+        return
+
+    if mtype == "ask":
+        # /suggest and /draft: a plain model turn with a synthesized instruction,
+        # no tools expected. Streams like any chat turn.
+        if msg.get("mode") == "draft_finding":
+            prompt = (
+                "Draft a single finding from the most recent tool result: give a title, "
+                "severity, vuln_type, affected component, and remediation. Do not call any tools."
+            )
+        else:
+            prompt = (
+                "Suggest the single best next step for this engagement given the "
+                "conversation so far. Be concise. Do not call any tools."
+            )
+        control.begin_turn()
+        async for event in agent.chat(prompt, control):
+            await emit(event)
+        emit.flush()
+        return
+
+    if mtype == "promote":
+        # Turn the most recent tool result into finding(s) the same way the UI's
+        # →finding button does, then persist them via the shared save path.
+        if emit.last_tool is None:
+            await emit({"type": "info",
+                        "message": "No recent tool result to promote — run a scanner first, then /promote."})
+            return
+        tool_name, output = emit.last_tool
+        drafts = finding_from_tool_result(tool_name, output, agent.engagement_id, agent.target)
+        if not drafts:
+            await emit({"type": "info", "message": f"No findings derivable from the last {tool_name} result."})
+            return
+        for draft in drafts:
+            await agent.registry.execute("save_finding", {"finding": draft.model_dump()})
+            await emit({"type": "finding_saved", "finding": {"title": draft.title, "vuln_type": draft.vuln_type}})
         return
 
     if mtype == "run_tool":
         name = msg.get("tool") or ""
         args = msg.get("arguments") or {}
         result = await agent.registry.execute(name, args)
-        await ws.send_json({"type": "tool_result", "tool": name, "output": result, "source": "human"})
+        await emit({"type": "tool_result", "tool": name, "output": result, "source": "human"})
+        # Flag/secret detection for human-run tools
+        for draft in flag_findings_from_output(name, result, agent.engagement_id, agent.target):
+            match = draft.description.split(": ", 1)[-1] if ": " in draft.description else ""
+            if match and match not in agent._captured_flags:
+                agent._captured_flags.add(match)
+                await emit({
+                    "type": "finding_draft",
+                    "draft": draft.model_dump(),
+                    "note": f"flag/secret detected in {name} output",
+                })
         # Inject what the operator did so the model sees it on the next turn.
         agent.messages.append({
             "role": "user",
@@ -153,13 +288,14 @@ async def _handle_work(
             + agent.context.summarize_tool_output(str(result)),
         })
         if isinstance(result, dict) and result.get("status") == "saved":
-            await ws.send_json({"type": "finding_saved", "finding": args})
+            await emit({"type": "finding_saved", "finding": args})
         return
 
     if mtype == "enumerate":
         control.begin_turn()
         async for event in agent.enumerate():
-            await ws.send_json(event)
+            await emit(event)
+        emit.flush()
         return
 
     if mtype == "report":
@@ -168,10 +304,10 @@ async def _handle_work(
         if agent.engagement_manager is not None:
             try:
                 agent.engagement_manager.update(agent.engagement_id, phase="reporting")
-            except Exception:
-                pass
-        await ws.send_json({"type": "phase", "phase": "reporting"})
-        await ws.send_json({"type": "report_ready", "reports": result})
+            except Exception as exc:
+                logger.warning("Failed to update engagement phase to reporting: %s", exc)
+        await emit({"type": "phase", "phase": "reporting"})
+        await emit({"type": "report_ready", "reports": result})
         return
 
     if mtype == "list_tools":
@@ -183,15 +319,25 @@ async def _handle_work(
             )
             if tool is not None
         ]
-        await ws.send_json({"type": "tools", "tools": tools})
+        await emit({"type": "tools", "tools": tools})
+        return
+
+    if mtype == "compact":
+        # Deterministically shrink the agent's context, then replace the
+        # persisted transcript with a single summary marker so a reload shows the
+        # compacted view. Sent (not emit-persisted) to avoid duplicating it.
+        recap = agent.compact()
+        if agent.engagement_manager is not None:
+            agent.engagement_manager.overwrite_chat_events(
+                agent.engagement_id, [{"type": "compacted", "summary": recap}])
+        await emit({"type": "compacted", "summary": recap})  # not in _PERSIST_TYPES → send only
         return
 
     if mtype == "help":
-        await ws.send_json({"type": "help", "commands": _HELP})
+        await emit({"type": "help", "commands": _HELP})
         return
 
-    # ask / promote are wired in later parts of the HITL work.
-    await ws.send_json({"type": "info", "message": f"'{mtype}' is not available yet"})
+    await emit({"type": "info", "message": f"'{mtype}' is not available yet"})
 
 
 @router.websocket("/ws/chat")
@@ -200,6 +346,7 @@ async def websocket_chat(websocket: WebSocket, engagement_id: str) -> None:
     agent = _get_or_create_agent(websocket.app.state, engagement_id)
     control = agent.control or AgentControl()
     agent.control = control
+    emit = _Emitter(websocket, agent)
     work: "asyncio.Queue[dict[str, Any]]" = asyncio.Queue()
 
     async def reader() -> None:
@@ -211,9 +358,16 @@ async def websocket_chat(websocket: WebSocket, engagement_id: str) -> None:
                 control.push(msg)
             elif mtype == STOP:
                 control.request_stop()
+            elif mtype == "interrupt":
+                # Halt the in-flight turn, then queue the operator's new
+                # instruction as the next turn (begin_turn clears the stop).
+                control.request_stop()
+                text = str(msg.get("text", "")).strip()
+                if text:
+                    await work.put({"type": "chat", "text": text})
             elif mtype == "set_phase":
                 control.set_phase(_PHASE_ALIASES.get(str(msg.get("phase", "")).lower(), control.phase))
-                await websocket.send_json({"type": "phase", "phase": control.phase})
+                await emit({"type": "phase", "phase": control.phase})
             else:
                 await work.put(msg)
 
@@ -221,9 +375,9 @@ async def websocket_chat(websocket: WebSocket, engagement_id: str) -> None:
         while True:
             msg = await work.get()
             try:
-                await _handle_work(websocket, agent, control, msg)
+                await _handle_work(emit, agent, control, msg)
             except Exception as e:  # never let one bad turn kill the socket
-                await websocket.send_json({"type": "error", "message": str(e)})
+                await emit({"type": "error", "message": str(e)})
 
     reader_task = asyncio.create_task(reader())
     worker_task = asyncio.create_task(worker())

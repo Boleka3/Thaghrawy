@@ -8,7 +8,7 @@ This does not gate or order tool calls - core/agent.py's ReAct loop stays
 fully dynamic. It's reference material in the prompt, not a state machine.
 """
 from dataclasses import dataclass, field
-from typing import List
+from typing import List, Optional
 
 
 @dataclass
@@ -48,13 +48,14 @@ SKILLS = {
             "Run breadth-first vulnerability scanners against discovered hosts/services "
             "before attempting manual exploitation: nuclei for known CVE/misconfig templates, "
             "nikto for web server issues, testssl for TLS weaknesses, wpscan if the stack is "
-            "WordPress. Cross-reference identified software versions with searchsploit. "
+            "WordPress, headers_audit for missing HTTP security headers. "
+            "Cross-reference identified software versions with searchsploit. "
             "For a broad OWASP Top-10 web sweep in one pass (XSS, SQLi, command exec, file "
             "handling, SSRF, CRLF), run wapiti against the app root before drilling in."
         ),
         tools=[
             "nuclei_scan", "nikto_scan", "testssl_scan", "wpscan_scan",
-            "wapiti_scan", "searchsploit_lookup",
+            "wapiti_scan", "searchsploit_lookup", "headers_audit",
         ],
     ),
     "exploit": Skill(
@@ -65,12 +66,19 @@ SKILLS = {
             "For OWASP A03 Injection: sqlmap for SQL injection points and dalfox for "
             "reflected/stored/DOM XSS on parameters that reflect input (wapiti's broad sweep "
             "in the vuln-scan phase also flags command injection and file-handling issues). "
+            "For OWASP A05/A08: xxe_test on XML endpoints, headers_audit to confirm missing "
+            "security headers on high-value endpoints. "
+            "For OWASP A07: jwt_analyze to inspect JWT tokens for weak algorithms or missing "
+            "claims before attempting signature bypass. "
+            "For OWASP A01: csrf_check on form-heavy apps, and http_request with alternate "
+            "HTTP methods or identifiers for IDOR testing. "
             "hydra for credential brute-forcing where lockout policy allows it, searchsploit to "
             "check for a public PoC for an identified version before reinventing one by hand."
         ),
         tools=[
             "sqlmap_scan", "dalfox_scan", "hydra_bruteforce",
             "searchsploit_lookup", "shell",
+            "xxe_test", "jwt_analyze", "csrf_check", "headers_audit",
         ],
     ),
     "network_ad": Skill(
@@ -107,6 +115,62 @@ SKILLS = {
         ),
         tools=["linux_privesc_check", "credential_search", "ssrf_test", "shell"],
     ),
+    "access_control": Skill(
+        name="Access Control Testing (OWASP A01)",
+        prompt=(
+            "Test for broken access control before and after authentication. "
+            "Use csrf_check to detect missing anti-CSRF tokens on form endpoints. "
+            "For IDOR (Insecure Direct Object Reference): iterate sequential/guessable "
+            "identifiers (user IDs, order numbers, document IDs) via http_request with "
+            "alternating owner context — look for data belonging to other users. "
+            "Check HTTP method override headers (X-HTTP-Method-Override, X-Method-Override) "
+            "for REST-endpoint privilege escalation. "
+            "Test vertical privilege escalation by replaying admin-level requests on "
+            "a low-privilege session."
+        ),
+        tools=["csrf_check", "http_request", "ffuf_fuzz", "katana_crawl"],
+    ),
+    "security_misconfig": Skill(
+        name="Security Misconfiguration (OWASP A05)",
+        prompt=(
+            "Audit HTTP security headers first with headers_audit — missing HSTS/CSP/XFO/COOP "
+            "are the most common scoring hits in bug bounties and pentest reports. "
+            "Check for directory listing enabled on known paths, debug/admin endpoints "
+            "exposed without auth, default credentials on common services, verb/OPTIONS "
+            "tampering on endpoints that should be strict (PUT/DELETE on read-only routes). "
+            "For XML endpoints, test XXE with xxe_test (file read, SSRF, SVG vectors). "
+            "Check for stack trace / verbose error messages on 4xx/5xx responses."
+        ),
+        tools=[
+            "headers_audit", "xxe_test", "ffuf_fuzz", "gobuster_scan",
+            "nuclei_scan", "http_request",
+        ],
+    ),
+    "ctf_web": Skill(
+        name="CTF Web Exploitation",
+        prompt=(
+            "Web exploitation for CTF challenges: map the app surface first, capture "
+            "normal request/response pairs before fuzzing, enumerate hidden functionality "
+            "from JS bundles/response headers/routes/alternate methods. Classify bug family: "
+            "injection (SQLi via sqlmap, XSS via dalfox), SSTI (Jinja2/Twig/Vue/Smarty), "
+            "SSRF (Host header/DNS rebinding/curl redirect), XXE via xxe_test (basic/OOB/DOCX "
+            "upload), JWT/JWE manipulation via jwt_analyze (weak secrets/header injection/key "
+            "confusion), auth bypass via csrf_check (IDOR/OAuth/OIDC/SAML/CORS), headers_audit "
+            "for misconfig scoring, file upload RCE (polyglot/double-ext/truncation), "
+            "prototype pollution, deserialization (Java/Python/PHP), command injection, "
+            "request smuggling, and race conditions. Build the smallest proof first (leak, "
+            "bypass, primitive), chain for full exploit. Common flag locations: /flag.txt, "
+            "environment vars, database flag tables, hidden DOM nodes, HTTP response headers."
+        ),
+        tools=[
+            "sqlmap_scan", "dalfox_scan", "ffuf_fuzz", "arjun_scan",
+            "ssrf_test", "upload_test", "xxe_test", "jwt_analyze",
+            "csrf_check", "headers_audit", "searchsploit_lookup",
+            "wapiti_scan", "nuclei_scan", "katana_crawl",
+            "gobuster_scan", "web_tech_detect", "wafw00f_scan",
+            "credential_search", "save_finding", "save_technique",
+        ],
+    ),
     "report": Skill(
         name="Reporting",
         prompt=(
@@ -129,9 +193,20 @@ SKILLS = {
 }
 
 
-def methodology_reference() -> str:
-    """Render all skills as a compact reference block for the system prompt."""
+def methodology_reference(skill_filter: Optional[list[str]] = None) -> str:
+    """Render skills as a compact reference block for the system prompt.
+
+    When `skill_filter` is provided (a list of skill dict keys like
+    ``["ctf_web", "recon"]``), only those skills are included — useful for
+    engagement-type-specific routing (e.g. CTF web challenges vs. network
+    pentests). When None or empty, ALL skills are shown.
+    """
     lines = ["METHODOLOGY REFERENCE (guidance, not a required order):"]
-    for skill in SKILLS.values():
+    keys = set(skill_filter) if skill_filter else None
+    if keys is not None and not keys:
+        keys = None  # empty list is the same as "all"
+    for key, skill in SKILLS.items():
+        if keys is not None and key not in keys:
+            continue
         lines.append(f"- {skill.name}: {skill.prompt} [tools: {', '.join(skill.tools)}]")
-    return "\n".join(lines)
+    return "\n".join(lines) if lines[1:] else "No relevant skills configured for this engagement type."
