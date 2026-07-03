@@ -30,7 +30,7 @@ DANGEROUS_PATTERNS = [
 # the intended argument structure. These require force=True.
 INJECTION_PATTERNS = [
     r"(?<![\\])[;|&]",                     # command chaining: ; | &
-    r"\bcurl\s+\S+\s*\|\s*(bash|sh|zsh)", # pipe curl into shell
+    r"\bcurl\s+\S+\s*\|\s*(bash|sh|zsh)",  # pipe curl into shell
     r"\bbash\s+-c\b",                       # inline script execution
     r"\bpython\s+-c\b",
     r"\bperl\s+-e\b",

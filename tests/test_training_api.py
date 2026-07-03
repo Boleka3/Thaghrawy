@@ -1,5 +1,4 @@
 """Tests for the /api/training/export endpoint (training.py route)."""
-import json
 
 
 def _create_engagement(api_client):

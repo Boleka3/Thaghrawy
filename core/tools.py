@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import re
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -364,8 +365,19 @@ def build_default_registry(
     return registry
 
 
-def build_filtered_registry(mode: str, memory: MemoryStore, engagement_id: str) -> ToolRegistry:
+def build_filtered_registry(mode: str, memory: MemoryStore, engagement_id: str, target: str = "") -> ToolRegistry:
     """Thin wrapper over build_default_registry() for the FR-01 recon-only vs
     full-analysis engagement mode - keeps a single registry-construction path
-    rather than maintaining two."""
-    return build_default_registry(memory, engagement_id, include_exploit_tools=mode != "recon_only")
+    rather than maintaining two.
+
+    If *target* contains a port number (e.g. ``juice-shop:3000``), subdomain-
+    enumeration tools (subfinder_scan, amass_scan, httpx_scan) are excluded
+    because they make no sense against a hostname:port address.
+    """
+    registry = build_default_registry(memory, engagement_id, include_exploit_tools=mode != "recon_only")
+    _has_port = bool(re.search(r":\d{2,5}", target))
+    if _has_port:
+        for name in ("subfinder_scan", "amass_scan", "httpx_scan"):
+            if name in registry._tools:
+                del registry._tools[name]
+    return registry

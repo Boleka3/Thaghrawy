@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 from typing import Any, Optional
 
-import config
 from skills import methodology_reference
 
 BASE_PROMPT = "You are Thaghrawy, an autonomous AI penetration testing assistant."

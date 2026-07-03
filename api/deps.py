@@ -32,7 +32,7 @@ def _get_or_create_agent(state, engagement_id: str) -> PentestAgent:
         target = engagement.target if engagement else ""
         mode = engagement.analysis_mode if engagement else "full_analysis"
         phase = engagement.phase if engagement else "enumeration"
-        registry = build_filtered_registry(mode, state.memory, engagement_id)
+        registry = build_filtered_registry(mode, state.memory, engagement_id, target=target)
         control = AgentControl(phase=phase)
         manager = state.engagements
 

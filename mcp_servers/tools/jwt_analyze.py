@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import base64
 import json
-import re
 from typing import Any
 
 from mcp_servers.tools._common import safe_filename, sanitize_input, save_to_workspace

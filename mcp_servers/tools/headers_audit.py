@@ -10,7 +10,8 @@ from mcp_servers.tools._common import safe_filename, sanitize_input, save_to_wor
 
 _HEADER_CHECKS: list[tuple[str, str, str, str]] = [
     ("strict-transport-security",      "HSTS",         "high",   "Missing HTTP Strict-Transport-Security header"),
-    ("content-security-policy",         "CSP",          "high",   "Missing Content-Security-Policy header — XSS mitigation"),
+    ("content-security-policy",  "CSP",  "high",
+     "Missing Content-Security-Policy header — XSS mitigation"),
     ("x-frame-options",                "X-Frame-Options", "high", "Missing X-Frame-Options — clickjacking risk"),
     ("x-content-type-options",         "X-Content-Type-Options", "medium",
      "Missing X-Content-Type-Options — MIME-sniffing risk"),
@@ -79,7 +80,10 @@ def headers_audit(url: str, follow_redirects: bool = True) -> dict[str, Any]:
         "tool": "headers_audit",
         "target": url,
         "score": score,
-        "summary": f"Security headers score: {score}/100 ({len([f for f in findings if f['present']])}/{len(findings)} headers present)",
+        "summary": (
+            f"Security headers score: {score}/100 "
+            f"({len([f for f in findings if f['present']])}/{len(findings)} headers present)"
+        ),
         "findings": findings,
         "full_output_file": log_path,
     }
