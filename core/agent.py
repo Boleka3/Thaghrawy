@@ -7,8 +7,16 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Optional
 
-import config
 import logging
+
+import config
+from core.context import ContextManager
+from core.control import EDIT, REJECT, STOP, AgentControl
+from core.finding_drafts import flag_findings_from_output
+from core.llm import BaseLLMProvider, get_provider
+from core.tools import ToolRegistry, build_default_registry
+from memory.store import MemoryStore
+from prompt_builder import build_system_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -25,13 +33,7 @@ def _strip_hash_from_urls(value: Any) -> Any:
     if isinstance(value, (list, tuple)):
         return list(_strip_hash_from_urls(v) for v in value)
     return value
-from core.context import ContextManager
-from core.control import EDIT, REJECT, STOP, AgentControl
-from core.llm import BaseLLMProvider, get_provider
-from core.tools import ToolRegistry, build_default_registry
-from memory.store import MemoryStore
-from prompt_builder import build_system_prompt
-from core.finding_drafts import flag_findings_from_output  # noqa: E402
+
 
 if TYPE_CHECKING:
     from engagements.manager import EngagementManager

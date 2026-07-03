@@ -21,14 +21,14 @@ import json
 import logging
 from typing import Any
 
-logger = logging.getLogger(__name__)
-
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from api.deps import _get_or_create_agent
 from core.agent import PentestAgent
 from core.control import APPROVE, EDIT, REJECT, STOP, AgentControl
 from core.finding_drafts import finding_from_tool_result, flag_findings_from_output
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
