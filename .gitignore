@@ -35,3 +35,6 @@ Thumbs.db
 
 # Test artifacts
 .pytest_cache/
+
+# Node (frontend test tooling)
+node_modules/

@@ -19,6 +19,13 @@ const phaseBanner = document.getElementById("phase-banner");
 // Modal state
 let _modalResolve = null;
 
+// Sentinel an action's value() can return to mean "validation failed, keep
+// the dialog open" — distinct from an action legitimately resolving to the
+// boolean `false` (e.g. Cancel). Using plain `false` for both used to mean
+// clicking Cancel (value: () => false) was itself treated as "keep open" and
+// silently did nothing.
+const KEEP_OPEN = Symbol("keep-open");
+
 // ── Toast system ─────────────────────────────────────────────────────────────
 
 function showToast(message, type) {
@@ -58,7 +65,14 @@ function showModal(title, bodyHTML, actions) {
       btn.textContent = a.label;
       btn.addEventListener("click", () => {
         const val = a.value ? a.value() : true;
-        if (val !== false) { closeModal(); resolve(val); }
+        if (val !== KEEP_OPEN) {
+          // Clear the resolver first: closeModal() also resolves the promise
+          // (with null, as its "dismissed" fallback), and a promise can only
+          // resolve once, so leaving it set would silently drop this resolve(val).
+          _modalResolve = null;
+          closeModal();
+          resolve(val);
+        }
       });
       actionsDiv.appendChild(btn);
     });
@@ -83,8 +97,8 @@ function showPrompt(title, fields) {
     const id = `_prompt_${i}`;
     ids.push(id);
     const opts = f.options
-      ? `<select id="${id}" class="${f.required ? "required" : ""}">${f.options.map((o) => `<option value="${o}">${o}</option>`).join("")}</select>`
-      : `<input id="${id}" type="${f.type || "text"}" value="${(f.default || "").replace(/"/g, "&quot;")}" placeholder="${f.placeholder || ""}" class="${f.required ? "required" : ""}" />`;
+      ? `<select id="${id}" class="${f.required ? "required" : ""}">${f.options.map((o) => `<option value="${o}"${o === f.value ? " selected" : ""}>${o}</option>`).join("")}</select>`
+      : `<input id="${id}" type="${f.type || "text"}" value="${(f.value || "").replace(/"/g, "&quot;")}" placeholder="${f.placeholder || ""}" class="${f.required ? "required" : ""}" />`;
     html += `<div class="field"><label>${f.label}</label>${opts}<div class="error-text">${f.error || "This field is required"}</div></div>`;
   });
   return showModal(title, html, [
@@ -112,7 +126,7 @@ function showPrompt(title, fields) {
             if (et) et.classList.remove("show");
           }
         });
-        return valid ? vals : false;
+        return valid ? vals : KEEP_OPEN;
       },
     },
   ]);
@@ -413,6 +427,7 @@ async function editFinding(id, meta) {
   const vals = await showPrompt("Edit Finding", [
     {
       key: "severity", label: "Severity", required: true, placeholder: "medium",
+      value: meta.severity || "medium",
       options: ["critical", "high", "medium", "low", "info"],
     },
     { key: "vuln_type", label: "Vuln type (must contain the OWASP/DVWA category to score)", value: meta.vuln_type || "", placeholder: "e.g. IDOR, XSS, SSRF" },
@@ -909,7 +924,7 @@ document.addEventListener("keydown", (e) => {
 // ── Modal close on backdrop click ────────────────────────────────────────────
 
 document.getElementById("modal-overlay").addEventListener("click", (e) => {
-  if (e.target === document.getElementById("modal-overlay") && !_modalResolve) {
+  if (e.target === document.getElementById("modal-overlay") && _modalResolve) {
     closeModal();
   }
 });
