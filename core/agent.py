@@ -4,6 +4,7 @@ for direct relay over the chat WebSocket - see api/websocket.py.
 """
 from __future__ import annotations
 
+import asyncio
 import re
 from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Optional
 
@@ -39,6 +40,20 @@ if TYPE_CHECKING:
     from engagements.manager import EngagementManager
 
 MAX_TOOL_ITERATIONS = config.MAX_TOOL_ITERATIONS
+
+# When the model emits several independent tool calls in one step, run them
+# concurrently up to this fan-out instead of one-at-a-time — recon fan-outs
+# (several nuclei/httpx/curl probes) then finish in ~max(latency) rather than
+# the sum. Ported from the reference agent's MAX_PARALLEL_TOOL_CALLS ("E1").
+MAX_PARALLEL_TOOL_CALLS = 4
+# Tools whose handler reads-then-writes shared state that a sibling call in the
+# SAME step could race (save_finding/save_technique both dedup against existing
+# findings before writing). A step containing one of these falls back to
+# sequential execution so ordering and dedup stay deterministic.
+STATEFUL_TOOLS = frozenset({"save_finding", "save_technique"})
+# Cap read_file calls per turn so the model can't burn the tool budget re-reading
+# output that scanners already returned into context.
+MAX_READ_FILE_PER_TURN = 3
 
 MEMORY_EXTRA_SECTION = (
     "\nWhen search_memory returns hits above your judgment of relevance, weave them "
@@ -107,6 +122,177 @@ class PentestAgent:
             manager.record_steps(self.engagement_id, steps)
         except Exception as exc:
             logger.warning("record_steps failed: %s", exc)
+
+    def _is_dangerous(self, name: str) -> bool:
+        tool = self.registry.get(name)
+        return bool(tool and tool.dangerous)
+
+    def _check_read_file_cap(
+        self, call: dict[str, Any]
+    ) -> Optional[tuple[dict[str, Any], dict[str, Any]]]:
+        """Enforce the per-turn read_file budget. Returns None to allow the call,
+        or a (tool_result_event, tool_message) pair to skip it once the cap is
+        hit. Increments self._read_file_count. Shared by the sequential and
+        parallel execution paths so the budget can't diverge between them."""
+        if call["name"] != "read_file":
+            return None
+        self._read_file_count += 1
+        if self._read_file_count <= MAX_READ_FILE_PER_TURN:
+            return None
+        result = {
+            "status": "error",
+            "error": f"Read-file limit ({MAX_READ_FILE_PER_TURN}) hit — "
+            "tool output was already returned above; read_file is unnecessary.",
+        }
+        event = {"type": "tool_result", "tool": call["name"], "output": result}
+        message = {
+            "role": "tool",
+            "tool_call_id": call["id"],
+            "name": call["name"],
+            "content": "[read_file skipped: limit reached. Use the scanner output already in context.]",
+        }
+        return event, message
+
+    async def _postprocess_result(
+        self, call: dict[str, Any], arguments: dict[str, Any], result: Any, verdict: str
+    ) -> AsyncIterator[dict[str, Any]]:
+        """Emit the post-execution events for one tool call, append its tool
+        message to history, and record the HITL decision. Shared by the
+        sequential and parallel paths so the per-call side effects stay
+        identical regardless of how the call was scheduled."""
+        self._step_count += 1
+        yield {"type": "step", "count": self._step_count, "tool": call["name"]}
+        yield {"type": "tool_result", "tool": call["name"], "output": result}
+
+        # Flag/secret detection — propose drafts, don't auto-save.
+        for draft in flag_findings_from_output(call["name"], result, self.engagement_id, self.target):
+            match = draft.description.split(": ", 1)[-1] if ": " in draft.description else ""
+            if match and match not in self._captured_flags:
+                self._captured_flags.add(match)
+                yield {
+                    "type": "finding_draft",
+                    "draft": draft.model_dump(),
+                    "note": f"flag/secret detected in {call['name']} output",
+                }
+
+        is_save = call["name"] in ("save_finding", "save_technique")
+        if is_save and isinstance(result, dict) and result.get("status") == "saved":
+            yield {"type": "finding_saved", "finding": arguments}
+
+        self.messages.append({
+            "role": "tool",
+            "tool_call_id": call["id"],
+            "name": call["name"],
+            "content": self.context.summarize_tool_output(str(result)),
+        })
+        self._record_decision(call, verdict, arguments, result)
+
+    async def _gather_calls(
+        self, prepared: list[tuple[dict[str, Any], dict[str, Any], Optional[Any]]]
+    ) -> list[Any]:
+        """Execute the non-skipped prepared calls concurrently, bounded by
+        MAX_PARALLEL_TOOL_CALLS, returning results in input order. Skipped calls
+        (read_file over budget) map to None. registry.execute() folds tool
+        exceptions into a structured error result, so gather never raises."""
+        sem = asyncio.Semaphore(MAX_PARALLEL_TOOL_CALLS)
+
+        async def _run(call: dict[str, Any], arguments: dict[str, Any], skip: Optional[Any]) -> Any:
+            if skip is not None:
+                return None
+            async with sem:
+                return await self.registry.execute(call["name"], arguments)
+
+        return await asyncio.gather(*(_run(c, a, s) for c, a, s in prepared))
+
+    async def _run_sequential(
+        self, pending_tool_calls: list[dict[str, Any]], control: Optional[AgentControl]
+    ) -> AsyncIterator[dict[str, Any]]:
+        """One-at-a-time execution. Used whenever a step needs serialization —
+        a human approval gate, a stateful tool, or a lone call — and drives the
+        interactive approve/reject/edit/stop modal. Behaviorally identical to the
+        original in-line loop."""
+        for call in pending_tool_calls:
+            if control is not None and control.stopped:
+                return
+
+            arguments = call["arguments"]
+            dangerous = self._is_dangerous(call["name"])
+            verdict = "auto"
+
+            if control is not None and control.needs_approval(dangerous=dangerous):
+                yield {
+                    "type": "tool_call_pending",
+                    "id": call["id"],
+                    "tool": call["name"],
+                    "arguments": arguments,
+                    "dangerous": dangerous,
+                }
+                decision = await control.await_decision(call["id"], dangerous=dangerous)
+                verdict = decision.action
+                if decision.action == STOP:
+                    yield {"type": "stopped", "reason": "human"}
+                    self._record_decision(call, STOP, arguments, None)
+                    return
+                if decision.action == REJECT:
+                    yield {"type": "tool_rejected", "id": call["id"], "tool": call["name"]}
+                    self.messages.append({
+                        "role": "tool",
+                        "tool_call_id": call["id"],
+                        "name": call["name"],
+                        "content": "[rejected by human] The operator declined this "
+                        "tool call. Reconsider and propose a different approach.",
+                    })
+                    self._record_decision(call, REJECT, arguments, None)
+                    continue
+                if decision.action == EDIT and decision.arguments:
+                    arguments = decision.arguments
+                    yield {
+                        "type": "tool_edited",
+                        "id": call["id"],
+                        "tool": call["name"],
+                        "arguments": arguments,
+                    }
+
+            # Strip URL hash fragments — scanners choke on #/path?q= URLs
+            arguments = _strip_hash_from_urls(arguments)
+
+            cap = self._check_read_file_cap(call)
+            if cap is not None:
+                event, message = cap
+                yield event
+                self.messages.append(message)
+                continue
+
+            result = await self.registry.execute(call["name"], arguments)
+            async for ev in self._postprocess_result(call, arguments, result, verdict):
+                yield ev
+
+    async def _run_parallel(
+        self, pending_tool_calls: list[dict[str, Any]], control: Optional[AgentControl]
+    ) -> AsyncIterator[dict[str, Any]]:
+        """Concurrent execution for an un-gated, stateless, multi-call step. Args
+        are finalized and the read_file budget applied in a deterministic
+        pre-pass; calls then execute together (bounded by MAX_PARALLEL_TOOL_CALLS)
+        while events are emitted in input order so history stays deterministic."""
+        if control is not None and control.stopped:
+            return
+
+        prepared: list[tuple[dict[str, Any], dict[str, Any], Optional[Any]]] = []
+        for call in pending_tool_calls:
+            arguments = _strip_hash_from_urls(call["arguments"])
+            skip = self._check_read_file_cap(call)
+            prepared.append((call, arguments, skip))
+
+        results = await self._gather_calls(prepared)
+
+        for (call, arguments, skip), result in zip(prepared, results):
+            if skip is not None:
+                event, message = skip
+                yield event
+                self.messages.append(message)
+                continue
+            async for ev in self._postprocess_result(call, arguments, result, "auto"):
+                yield ev
 
     # Deterministic recon probes run during autonomous enumeration. Kept small
     # and reliable: nuclei is the richest structured source of easy misconfig /
@@ -187,9 +373,8 @@ class PentestAgent:
         self.messages.append({"role": "user", "content": user_input})
         self.messages = self.context.trim(self.messages)
 
-        step_count = 0
-        read_file_count = 0
-        MAX_READ_FILE_PER_TURN = 3
+        self._step_count = 0
+        self._read_file_count = 0
         for _ in range(MAX_TOOL_ITERATIONS):
             assistant_text = ""
             pending_tool_calls: list[dict[str, Any]] = []
@@ -234,111 +419,34 @@ class PentestAgent:
                 "tool_calls": tool_calls,
             })
 
-            stopped = False
-            for call in pending_tool_calls:
-                if control is not None and control.stopped:
-                    stopped = True
-                    break
+            # Choose an execution strategy for this step. A batch runs
+            # concurrently only when nothing forces serialization: no approval
+            # gate would pause it, no stateful tool needs deterministic ordering,
+            # and there's more than one call to actually overlap. Otherwise the
+            # sequential path runs — it also drives the one-at-a-time human
+            # approve/reject/edit/stop modal.
+            gated = control is not None and any(
+                control.needs_approval(dangerous=self._is_dangerous(c["name"]))
+                for c in pending_tool_calls
+            )
+            can_parallel = (
+                len(pending_tool_calls) > 1
+                and not gated
+                and not any(c["name"] in STATEFUL_TOOLS for c in pending_tool_calls)
+            )
 
-                arguments = call["arguments"]
-                tool = self.registry.get(call["name"])
-                dangerous = bool(tool and tool.dangerous)
-                verdict = "auto"
+            runner = self._run_parallel if can_parallel else self._run_sequential
+            async for event in runner(pending_tool_calls, control):
+                yield event
 
-                if control is not None and control.needs_approval(dangerous=dangerous):
-                    yield {
-                        "type": "tool_call_pending",
-                        "id": call["id"],
-                        "tool": call["name"],
-                        "arguments": arguments,
-                        "dangerous": dangerous,
-                    }
-                    decision = await control.await_decision(call["id"], dangerous=dangerous)
-                    verdict = decision.action
-                    if decision.action == STOP:
-                        stopped = True
-                        yield {"type": "stopped", "reason": "human"}
-                        self._record_decision(call, STOP, arguments, None)
-                        break
-                    if decision.action == REJECT:
-                        yield {"type": "tool_rejected", "id": call["id"], "tool": call["name"]}
-                        self.messages.append({
-                            "role": "tool",
-                            "tool_call_id": call["id"],
-                            "name": call["name"],
-                            "content": "[rejected by human] The operator declined this "
-                            "tool call. Reconsider and propose a different approach.",
-                        })
-                        self._record_decision(call, REJECT, arguments, None)
-                        continue
-                    if decision.action == EDIT and decision.arguments:
-                        arguments = decision.arguments
-                        yield {
-                            "type": "tool_edited",
-                            "id": call["id"],
-                            "tool": call["name"],
-                            "arguments": arguments,
-                        }
-
-                # Strip URL hash fragments — scanners choke on #/path?q= URLs
-                arguments = _strip_hash_from_urls(arguments)
-
-                # Cap read_file calls per turn to avoid burning the tool budget.
-                if call["name"] == "read_file":
-                    read_file_count += 1
-                    if read_file_count > MAX_READ_FILE_PER_TURN:
-                        result = {
-                            "status": "error",
-                            "error": f"Read-file limit ({MAX_READ_FILE_PER_TURN}) hit — "
-                            "tool output was already returned above; read_file is unnecessary.",
-                        }
-                        yield {"type": "tool_result", "tool": call["name"], "output": result}
-                        self.messages.append({
-                            "role": "tool",
-                            "tool_call_id": call["id"],
-                            "name": call["name"],
-                            "content": "[read_file skipped: limit reached. Use the scanner output already in context.]",
-                        })
-                        continue
-
-                result = await self.registry.execute(call["name"], arguments)
-                step_count += 1
-                yield {"type": "step", "count": step_count, "tool": call["name"]}
-                yield {"type": "tool_result", "tool": call["name"], "output": result}
-
-                # Flag/secret detection — propose drafts, don't auto-save
-                for draft in flag_findings_from_output(
-                    call["name"], result, self.engagement_id, self.target,
-                ):
-                    match = draft.description.split(": ", 1)[-1] if ": " in draft.description else ""
-                    if match and match not in self._captured_flags:
-                        self._captured_flags.add(match)
-                        yield {
-                            "type": "finding_draft",
-                            "draft": draft.model_dump(),
-                            "note": f"flag/secret detected in {call['name']} output",
-                        }
-
-                is_save = call["name"] in ("save_finding", "save_technique")
-                if is_save and isinstance(result, dict) and result.get("status") == "saved":
-                    yield {"type": "finding_saved", "finding": arguments}
-
-                self.messages.append({
-                    "role": "tool",
-                    "tool_call_id": call["id"],
-                    "name": call["name"],
-                    "content": self.context.summarize_tool_output(str(result)),
-                })
-                self._record_decision(call, verdict, arguments, result)
-
-            if stopped:
+            if control is not None and control.stopped:
                 break
         else:
             limit_msg = f"Reached the {MAX_TOOL_ITERATIONS}-iteration tool-call limit for this turn."
             yield {"type": "error", "message": limit_msg}
 
-        self._record_steps(step_count)
-        yield {"type": "done", "steps": step_count}
+        self._record_steps(self._step_count)
+        yield {"type": "done", "steps": self._step_count}
 
     def compact(self) -> str:
         """Deterministically summarize the running conversation and replace the

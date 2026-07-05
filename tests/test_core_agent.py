@@ -206,6 +206,76 @@ async def test_chat_does_not_emit_finding_draft_on_clean_output(tmp_memory, real
     assert drafts == []
 
 
+@pytest.mark.anyio
+async def test_chat_runs_independent_tool_calls_concurrently(tmp_memory, real_registry, fake_provider):
+    """Two independent tool calls in one step overlap (finish in ~max latency,
+    not the sum) while their events stay in input order."""
+    import asyncio
+    import time
+
+    async def slow(**kwargs):
+        await asyncio.sleep(0.2)
+        return {"status": "success", "args": kwargs}
+
+    real_registry.register("slow_a", slow)
+    real_registry.register("slow_b", slow)
+
+    provider = fake_provider(scripts=[
+        [
+            {"type": "tool_call", "id": "a", "name": "slow_a", "arguments": {"x": 1}},
+            {"type": "tool_call", "id": "b", "name": "slow_b", "arguments": {"x": 2}},
+        ],
+        [{"type": "token", "content": "done"}],
+    ])
+    agent = PentestAgent(
+        engagement_id="eng-1", target="https://example.com",
+        memory=tmp_memory, registry=real_registry, provider=provider,
+    )
+
+    start = time.monotonic()
+    events = [event async for event in agent.chat("go")]
+    elapsed = time.monotonic() - start
+
+    # Overlapping two 0.2s tools finishes well under the 0.4s sequential sum.
+    assert elapsed < 0.35
+    results = _events_of_type(events, "tool_result")
+    assert [r["tool"] for r in results] == ["slow_a", "slow_b"]  # input order preserved
+    steps = _events_of_type(events, "step")
+    assert [s["count"] for s in steps] == [1, 2]
+    assert [s["tool"] for s in steps] == ["slow_a", "slow_b"]
+    assert events[-1] == {"type": "done", "steps": 2}
+
+
+@pytest.mark.anyio
+async def test_chat_batch_with_stateful_tool_persists_all_findings(tmp_memory, real_registry, fake_provider):
+    """A step whose batch contains a stateful tool (save_finding) falls back to
+    sequential execution; every finding is still persisted and reported."""
+    def _finding(title):
+        return {"finding": {
+            "title": title, "severity": "high", "vuln_type": "SQL Injection",
+            "description": "d", "reproduction_steps": "r", "technique_used": "sqlmap",
+            "target": "https://example.com", "engagement_id": "eng-1",
+        }}
+
+    provider = fake_provider(scripts=[
+        [
+            {"type": "tool_call", "id": "t1", "name": "save_finding", "arguments": _finding("SQLi A")},
+            {"type": "tool_call", "id": "t2", "name": "save_finding", "arguments": _finding("SQLi B")},
+        ],
+        [{"type": "token", "content": "done"}],
+    ])
+    agent = PentestAgent(
+        engagement_id="eng-1", target="https://example.com",
+        memory=tmp_memory, registry=real_registry, provider=provider,
+    )
+
+    events = [event async for event in agent.chat("save both")]
+
+    assert len(_events_of_type(events, "finding_saved")) == 2
+    titles = {f["metadata"]["title"] for f in tmp_memory.load_engagement_findings("eng-1")}
+    assert titles == {"SQLi A", "SQLi B"}
+
+
 def test_compact_summarizes_and_resets_messages(tmp_memory, real_registry, fake_provider):
     agent = PentestAgent(
         engagement_id="eng-1", target="http://target",
