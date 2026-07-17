@@ -9,7 +9,7 @@ memory.
 ## Quickstart (Docker)
 
 **Docker Compose is the primary, supported way to run Thaghrawy.** This builds and
-starts just the agent harness — with all ~29 security tools already installed in the
+starts just the agent harness — with all ~34 security tools already installed in the
 image, no manual tool setup required. Point it at your own authorized scope.
 
 ```bash
