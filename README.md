@@ -1,237 +1,274 @@
-# Thaghrawy
+<div align="center">
 
-An AI-assisted penetration testing harness with persistent, cross-engagement
-memory.
+# 🛡️ Thaghrawy
 
-> ⚠️ For authorized security testing only. Use only against systems you own
-> or have explicit written permission to test.
+### An open-source, AI-powered autonomous penetration-testing assistant
 
-## Quickstart (Docker)
+*A ReAct agent that drives 34 real security tools over the Model Context Protocol (MCP), keeps a human in the loop, remembers findings across engagements, and writes the report for you.*
 
-**Docker Compose is the primary, supported way to run Thaghrawy.** This builds and
-starts just the agent harness — with all ~34 security tools already installed in the
-image, no manual tool setup required. Point it at your own authorized scope.
+![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-async-009688?logo=fastapi&logoColor=white)
+![MCP](https://img.shields.io/badge/Protocol-MCP-6E56CF)
+![ChromaDB](https://img.shields.io/badge/Memory-ChromaDB-FF6F61)
+![Docker](https://img.shields.io/badge/Deploy-Docker%20Compose-2496ED?logo=docker&logoColor=white)
+![Tests](https://img.shields.io/badge/tests-582%20passing-2ea44f)
+![License](https://img.shields.io/badge/license-MIT-blue)
 
-```bash
-cp .env.example .env        # fill in your LLM provider's endpoint / API key
-docker compose up --build   # builds the image, starts only the Thaghrawy agent
-```
+</div>
 
-Then open `http://localhost:8000` for the dark hacker-themed UI: pick or create
-an engagement on the left, chat with the agent in the middle, and watch findings
-collect on the right. The WebSocket at `/ws/chat?engagement_id=...` streams
-`memory_hit` / `tool_call` / `tool_result` / `token` / `finding_saved` / `done` /
-`error` events.
+> ⚠️ **For authorized security testing only.** Use Thaghrawy exclusively against systems you own or have explicit written permission to test. You are responsible for staying within your legal and contractual scope.
 
-### Optional: practice targets
+---
 
-DVWA and OWASP Juice Shop are **not** started by default — they're only useful for
-exercising the agent against known-vulnerable apps. They live behind a `targets`
-Compose profile:
+## Table of Contents
 
-```bash
-docker compose --profile targets up --build   # agent + DVWA + Juice Shop
-```
+- [Overview](#overview)
+- [Key Features](#key-features)
+- [How It Works](#how-it-works)
+- [Architecture](#architecture)
+- [The Tools — Three MCP Servers](#the-tools--three-mcp-servers)
+- [Quickstart (Docker)](#quickstart-docker)
+- [Practice Targets](#practice-targets)
+- [Configuration](#configuration)
+- [Using the Agent](#using-the-agent)
+- [Reporting](#reporting)
+- [Memory](#memory)
+- [Safety & Guardrails](#safety--guardrails)
+- [Testing & Evaluation](#testing--evaluation)
+- [REST & WebSocket API](#rest--websocket-api)
+- [Project Structure](#project-structure)
+- [Local Development](#local-development)
+- [Tech Stack](#tech-stack)
+- [Roadmap](#roadmap)
+- [Team & Acknowledgements](#team--acknowledgements)
+- [License](#license)
 
-With the profile up, the agent reaches DVWA at `http://dvwa:80` and Juice Shop at
-`http://juice-shop:3000` on the compose network (set `TARGET` per engagement or in
-`.env`).
+---
 
-### Choosing a compute backend (CPU / NVIDIA / AMD)
+## Overview
 
-GPU acceleration here only speeds up the **local embedding model** used for semantic
-memory (`sentence-transformers`). The LLM itself runs outside the container (a cloud API
-or a local server), so **most users should stay on the default CPU build** — pick a GPU
-variant only if you have the hardware and want faster embedding of large memory stores.
-The backend is baked in at build time via the `COMPUTE_BACKEND` build arg, which selects
-the matching PyTorch wheel index.
+Penetration testing is one of the most effective ways to find and fix security holes before attackers do — but it is slow, expensive, and depends on scarce expert talent. Existing AI security tools are either **passive advisors** (they guide a human who still runs every tool by hand) or **closed-source autonomous platforms** (effective, but inaccessible to the research and education community).
 
-| Backend | Use when | Host prerequisite | `COMPUTE_BACKEND` |
-|---|---|---|---|
-| **CPU** (default) | Anytime — no GPU needed | none | `cpu` |
-| **NVIDIA** | You have an NVIDIA GPU | NVIDIA Container Toolkit + recent driver | `cuda` |
-| **AMD** | You have an AMD GPU | ROCm 6.x kernel driver | `rocm` |
+**Thaghrawy** closes that gap. It wraps professional security tools as **MCP servers** so any compatible Large Language Model can call them through one standard interface. A **ReAct-style agent** reconnoitres a target, interprets raw tool output into structured findings, and stores them in a **ChromaDB semantic memory** for cross-engagement recall. Engagements run in phases: the agent enumerates autonomously, then hands off to a **human-in-the-loop** mode where every tool call can be approved, edited, or rejected. Finally it generates **two reports** — a technical one (CVSS, reproduction steps) and an executive one (DREAD, business impact).
 
-#### CPU (default) — nothing extra to install
+Because every human decision is captured, each engagement can be **exported as fine-tuning data** (supervised examples + preference pairs), turning day-to-day use into training data for a stronger agent.
 
-```bash
-docker compose up --build
-```
+## Key Features
 
-Lean image; avoids pulling the multi-GB CUDA torch wheels. Runs anywhere.
+- 🤖 **Autonomous agent, human veto** — a ReAct loop (reason → act → observe) selects and runs tools on its own, but a human approves/edits/rejects every risky action.
+- 🔌 **34 real security tools over MCP** — nmap, nuclei, sqlmap, ffuf, dalfox, wapiti, hydra, and more, behind one uniform, model-agnostic interface. New tools plug in without touching the agent core.
+- 🧠 **Cross-engagement memory** — confirmed findings and techniques are embedded in ChromaDB and recalled semantically before the agent acts, so lessons carry over.
+- 🧩 **Multi-provider LLM** — works with **Anthropic**, **OpenAI** (and any OpenAI-compatible endpoint like LM Studio / OpenRouter), or **Ollama**. Runs fully offline with a local model for zero cost and privacy.
+- 🛡️ **Layered safety** — destructive-command guardrails, recon-only mode that physically excludes exploit tools, a runtime human-approval gate, and full shell-command logging.
+- 📄 **Dual reporting** — technical (CVSS + reproduction) and executive (DREAD + business impact) reports, rendered Markdown → HTML → PDF.
+- 🔁 **Training-data export** — human approve/reject/edit decisions become SFT examples and DPO preference pairs.
+- 📊 **Benchmark harness** — measures Exploit Success Rate, Average Steps per Task, false-positive rate, and OWASP Top 10 detection rate against known-vulnerable targets.
+- ✅ **582 automated tests** and a Docker-first, reproducible deployment.
 
-#### NVIDIA GPU
+## How It Works
 
-```bash
-# 1. Install the NVIDIA Container Toolkit, then confirm the host sees the GPU:
-nvidia-smi
-# 2. Build + run with the NVIDIA overlay layered on the base compose file:
-docker compose -f docker-compose.yml -f docker-compose.gpu-nvidia.yml up --build
-```
+**The agent loop (ReAct).** Each turn, the agent reasons about the target, calls a tool through MCP, reads the result, and decides the next step — repeating until the goal is met or an iteration cap is reached. Findings, phase changes, and human decisions are streamed as structured events.
 
-The overlay builds torch from the CUDA wheels (`COMPUTE_BACKEND=cuda`) and reserves all
-NVIDIA GPUs for the container. Install guide:
-<https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html>
+**The engagement lifecycle — three phases:**
 
-#### AMD GPU (ROCm)
-
-```bash
-# 1. Install the ROCm kernel driver on the host (ROCm 6.x), then confirm:
-rocminfo
-# 2. Build + run with the AMD overlay layered on the base compose file:
-docker compose -f docker-compose.yml -f docker-compose.gpu-amd.yml up --build
-```
-
-The overlay builds torch from the ROCm 6.2 wheels (`COMPUTE_BACKEND=rocm`), passes the
-`/dev/kfd` and `/dev/dri` devices through, adds the container to the `video` group, and
-relaxes seccomp (required by ROCm).
-
-#### Verify the GPU is visible inside the container
-
-```bash
-docker compose exec agent python3 -c "import torch; print('GPU available:', torch.cuda.is_available())"
-```
-
-`True` means torch found the GPU; `False` means it fell back to CPU (still fully functional).
-
-**Tips**
-- Add the practice targets to any backend by appending `--profile targets` to the command.
-- Switching backends later? Re-run with `--build` so the image rebuilds with the new torch
-  wheels — the backend is fixed at build time.
-- The embedding model is cached in the `hf_cache` volume, so it downloads only once across
-  rebuilds.
-
-### Local install (development only)
-
-Running directly on the host is supported for development and the test suite, but
-**you must install the security tools yourself** (nmap, nuclei, sqlmap, dalfox, …) —
-Docker is what guarantees they're all present. To skip the multi-GB CUDA torch build,
-install the CPU wheel first:
-
-```bash
-pip install torch --index-url https://download.pytorch.org/whl/cpu
-pip install -r requirements.txt
-cp .env.example .env
-python main.py               # starts FastAPI on :8000
-```
-
-### Connectivity & LLM endpoints
-
-Connectivity is fully config-driven — the container reaches whatever you point it at
-through `.env`, so any deployer can bring their own LLM and targets.
-
-**External targets & cloud LLM APIs work with no extra setup.** The container has outbound
-internet egress via the default bridge network, so cloud LLM APIs (Anthropic/OpenAI/…) and
-external scan targets (e.g. a HackerOne scope) are reachable out of the box. Raw-socket
-scans (`nmap -sS`, `masscan`) work because the container runs as root with the default
-`NET_RAW` capability; on a hardened host that strips it, uncomment `cap_add: [NET_RAW,
-NET_ADMIN]` in `docker-compose.yml`.
-
-**LLM endpoint** — set `OPENAI_BASE_URL` in `.env` to match where your LLM lives:
-
-| Where the LLM runs | `OPENAI_BASE_URL` |
+| Phase | What happens |
 |---|---|
-| Cloud API (OpenAI) | *(leave empty)* |
-| Cloud-compatible (OpenRouter, …) | `https://openrouter.ai/api/v1` |
-| Local, on **this** Docker host (LM Studio/Ollama) | `http://host.docker.internal:1234/v1` |
-| Local, on **another LAN** machine | `http://<lan-ip>:1234/v1` |
-| A sibling compose service | `http://<service-name>:<port>/v1` |
+| **1 · Autonomous enumeration** | The agent recons the target on its own and deterministically auto-ingests low-risk findings, then emits a hand-off. |
+| **2 · Human-in-the-loop collaboration** | Every proposed tool call is gated — a human **approves**, **edits**, **rejects**, or **stops**. The analyst can also run tools manually and curate findings. |
+| **3 · Reporting** | The system generates the technical (CVSS) and executive (DREAD) reports. |
 
-The base compose maps `host.docker.internal` to the Docker host (requires Docker Engine
-≥ 20.10), so a local LLM on the same machine is reachable regardless of that host's IP —
-just **bind the LLM server to `0.0.0.0`, not `127.0.0.1`**. For Ollama use the same host with
-`OLLAMA_BASE_URL=http://host.docker.internal:11434`. Verify from inside the container:
-
-```bash
-docker compose exec agent sh -c 'curl -s https://example.com -o /dev/null -w "egress %{http_code}\n"'
-docker compose exec agent sh -c 'curl -s http://host.docker.internal:1234/v1/models'
-curl http://localhost:8000/api/lm-studio/status   # 200 + "loaded": true when the LLM is reachable
-```
+> **Live example (OWASP Juice Shop):** a single `/enumerate` ran the agent's recon tools, produced **21 findings** (e.g. missing security headers), and automatically handed off to the collaboration phase — with zero manual tool-running.
 
 ## Architecture
 
-```
+Thaghrawy is a modular, layered system: a dark web UI talks to a FastAPI backend over REST + a streaming WebSocket; the backend hosts a per-engagement agent wired to a tool registry, a memory store, an LLM provider, and a human-in-the-loop control channel; tools are grouped into three MCP servers.
+
+```mermaid
+flowchart TD
+    UI["Web UI<br/>(Engagements · Agent Chat · Findings)"]
+    API["FastAPI Backend<br/>REST + streaming WebSocket"]
+    AGENT["PentestAgent<br/>ReAct loop"]
+    REG["ToolRegistry<br/>(mode-gated)"]
+    MEM["MemoryStore<br/>ChromaDB"]
+    LLM["LLMProvider<br/>Anthropic · OpenAI · Ollama"]
+    CTRL["AgentControl<br/>human-in-the-loop"]
+    RECON["Recon MCP server"]
+    EXPLOIT["Exploit MCP server<br/>(gated)"]
+    REPORT["Report server"]
+
+    UI <--> API
+    API --> AGENT
+    AGENT --- REG
+    AGENT --- MEM
+    AGENT --- LLM
+    AGENT --- CTRL
+    REG --> RECON
+    REG --> EXPLOIT
+    REG --> REPORT
+The Tools — Three MCP Servers
+Every tool is grouped into one of three MCP servers. Each wrapper runs through a common helper (mcp_servers/tools/_common.py) that adds a real subprocess timeout, workspace persistence, a structured JSON result, and command logging — and never builds a shell string.
+
+Server	Role	Examples
+Recon server (recon_server.py)	Discovery & scanning — safe, non-destructive. Always registered.	subfinder, amass, assetfinder, dnsx, httpx, naabu, masscan, nmap, katana, gobuster, ffuf, nuclei, wpscan, testssl, wafw00f, whois, arjun, enum4linux, searchsploit, + header/JWT/CSRF/SSRF/XXE checks
+Exploit server (exploit_server.py)	Active exploitation — potentially dangerous. Excluded entirely in recon-only mode.	sqlmap, dalfox, wapiti, nikto, hydra, netexec, credential_search, linux_privesc_check
+Report server (report_server.py)	Turns findings into deliverables.	generate_report → Markdown → HTML → PDF
+The directory is mcp_servers/, not mcp/, so it doesn't shadow the installed mcp SDK package the servers import.
+
+Quickstart (Docker)
+Docker Compose is the primary, supported way to run Thaghrawy. It builds an image with all security tools pre-installed — no manual tool setup.
+
+git clone https://github.com/Boleka3/Thaghrawy.git
+cd thaghrawy
+
+cp .env.example .env          # add your LLM provider's endpoint / API key
+docker compose up --build     # builds the image and starts the agent
+Then open http://localhost:8000 — create an engagement on the left, chat with the agent in the middle, and watch findings collect on the right.
+
+Practice Targets
+DVWA and OWASP Juice Shop are not started by default. They live behind a targets Compose profile, for exercising the agent against known-vulnerable apps you own:
+
+docker compose --profile targets up --build   # agent + DVWA + Juice Shop
+With the profile up, the agent reaches DVWA at http://dvwa:80 and Juice Shop at http://juice-shop:3000 on the compose network. Set TARGET per engagement or in .env.
+
+Configuration
+All configuration is driven by .env (copied from .env.example).
+
+LLM provider
+Set LLM_PROVIDER to anthropic, openai, or ollama:
+
+Provider	Key settings
+Anthropic	ANTHROPIC_API_KEY, ANTHROPIC_MODEL
+OpenAI / compatible	OPENAI_API_KEY, OPENAI_MODEL, OPENAI_BASE_URL (point at LM Studio, OpenRouter, llama.cpp, …)
+Ollama	OLLAMA_BASE_URL, OLLAMA_MODEL
+For a local LLM on the same machine as Docker, use http://host.docker.internal:<port>/v1 and bind the LLM server to 0.0.0.0, not 127.0.0.1.
+
+Other useful knobs: LLM_TEMPERATURE, LLM_MAX_TOKENS, MAX_TOOL_ITERATIONS (agent round-trips per turn), CHROMA_PERSIST_DIR.
+
+Compute backend (CPU / NVIDIA / AMD)
+GPU only accelerates the local embedding model (memory), not the LLM — most users should stay on the default CPU build.
+
+Backend	Command
+CPU (default)	docker compose up --build
+NVIDIA	docker compose -f docker-compose.yml -f docker-compose.gpu-nvidia.yml up --build
+AMD (ROCm)	docker compose -f docker-compose.yml -f docker-compose.gpu-amd.yml up --build
+The backend is fixed at build time via the COMPUTE_BACKEND build arg — re-run with --build after switching.
+
+Using the Agent
+The frontend is a dark, three-panel single page:
+
+Engagements — create/select an engagement (name, target, scope, mode).
+Agent Chat — streamed reasoning, tool calls with inline Approve / Reject / Edit controls, a phase banner, and Enumerate / Stop / Run-tool / Report / Help actions.
+Findings — a live list with edit and "mark false-positive" actions, plus report links.
+Engagement modes:
+
+recon_only — the exploit server is never registered, so the LLM physically cannot run an exploitation tool.
+full — recon + exploitation, with the human-approval gate active.
+Reporting
+One engagement produces two reports from the same findings store:
+
+Report	Audience	Contents
+Technical	Engineers & analysts	CVSS score per finding, step-by-step reproduction, evidence & remediation, sorted by severity
+Executive	Managers & risk owners	DREAD risk rating, business-impact framing, prioritised and non-technical
+Both render Markdown → HTML → PDF via the report server.
+
+Memory
+The defining query is "have I seen a finding like this before?" — semantic similarity, not a table lookup. Thaghrawy uses ChromaDB with a local sentence-transformers model (all-MiniLM-L6-v2):
+
+Two collections — findings and techniques — each document embedded with metadata mirroring the Pydantic models.
+The agent recalls semantically similar past results before choosing its next move.
+Stored as a persistent Docker volume, so memory survives restarts and carries across engagements.
+Safety & Guardrails
+Security is layered:
+
+Guardrails (guardrails.py) block destructive shell patterns before execution.
+Mode-gating — a recon_only engagement never registers the exploit server.
+Human-approval gate — dangerous tool calls require an explicit human verdict at runtime (DANGEROUS_COMMANDS_REQUIRE_CONFIRM).
+Least privilege & no raw-credential storage.
+MCP-risk awareness — tool-poisoning and prompt-injection risks are contained by keeping the human in the loop.
+Every shell command is logged to engagements/sessions/shell_command_log.jsonl. .env is gitignored and CI fails the build if one is ever committed.
+
+Testing & Evaluation
+Validation runs at three levels, 582 automated tests in total (pytest):
+
+Unit — pure logic with the real tools mocked (argv building, output parsing, the control channel, finding-draft mapping, the exporter).
+Integration — the FastAPI app + WebSocket driven end-to-end over a real ASGI stack.
+Live smoke — every registered tool run against an owned target, to catch real-CLI bugs that mocks can't.
+pytest                 # run the full suite
+Benchmarks. The harness (benchmarks/) runs the agent against a target, then scores the saved findings against that target's known vulnerability categories (ground_truth.py, mapped to OWASP Top 10):
+
+ESR (Exploit Success Rate) = matched categories ÷ known categories
+AST (Average Steps per Task) = total steps ÷ turns
+FP-rate = unmatched findings ÷ total findings
+Detection rate = distinct OWASP Top 10 classes detected
+python -m benchmarks.runner <engagement_id> <target>   # e.g. ... dvwa
+Metric attainment is model-bound: a weak local model recons well but is poor at multi-step exploitation. The pipeline itself is validated end-to-end; a stronger model moves the numbers toward target.
+
+REST & WebSocket API
+The FastAPI backend exposes REST routers under api/routes/ (chat, engagements, findings, memory, reports, tools, training, lm_studio) and a streaming chat socket at:
+
+/ws/chat?engagement_id=...
+which streams memory_hit / tool_call / tool_result / token / finding_saved / done / error events, plus phase changes and approval prompts.
+
+Project Structure
 main.py                FastAPI app: serves frontend/, mounts api/ routers, /ws/chat
 core/
   agent.py             Tool-calling ReAct loop (PentestAgent)
-  llm.py                Anthropic / OpenAI / Ollama, normalized streaming events
-  tools.py              Unified tool registry (recon/exploit/report/memory/shell/http)
-  context.py            Context window trimming + tool-output truncation
+  llm.py               Anthropic / OpenAI / Ollama, normalized streaming events
+  tools.py             Unified tool registry (recon/exploit/report/memory/shell/http)
+  control.py           Human-in-the-loop control channel (approve/reject/edit/stop)
+  context.py           Context-window trimming + tool-output truncation
+  finding_drafts.py    Maps scanner output to structured Findings (auto-ingest)
 memory/
-  store.py              ChromaDB interface (findings + techniques collections)
-  embeddings.py         local sentence-transformers wrapper
-  schemas.py             Finding / Technique / Engagement pydantic models
-engagements/
-  manager.py             engagement CRUD, JSON + markdown session logs
-  sessions/               per-engagement data (gitignored)
+  store.py             ChromaDB interface (findings + techniques collections)
+  embeddings.py        Local sentence-transformers wrapper
+  schemas.py           Finding / Technique / Engagement Pydantic models
+engagements/manager.py  Engagement CRUD, JSON + trajectory session logs
 mcp_servers/
-  recon_server.py         consolidated recon tools (see "MCP consolidation" below)
-  exploit_server.py        sqlmap / nikto / hydra
-  report_server.py         markdown + PDF report generation
-  tools/                   per-tool wrapper modules used by recon_server.py
-api/
-  routes/                 chat, engagements, findings, memory REST endpoints
-  websocket.py             streaming chat
-frontend/                 dark hacker-themed single page UI
-guardrails.py             JSON enforcement + dangerous-shell-command gating/logging
-output_filter.py          per-tool output truncation/extraction
-prompt_builder.py         system prompt construction, memory + methodology injection
-skills.py                 methodology guidance per engagement phase (recon/exploit/etc.)
-reports/                  example real pentest reports from earlier engagements
-```
+  recon_server.py      Recon & discovery tools
+  exploit_server.py    Active exploitation tools (dangerous, gated)
+  report_server.py     Markdown + PDF report generation
+  tools/               Per-tool, framework-free wrapper modules
+reporting/builder.py   Pure functions that build the technical + executive reports
+training/exporter.py   SFT examples + DPO preference pairs
+benchmarks/            Ground truth, scorer, runner for the four metrics
+api/                   REST routers + websocket.py
+frontend/              Dark three-panel single-page UI
+guardrails.py          Dangerous-shell-command gating + logging
+prompt_builder.py      System prompt construction, memory + methodology injection
+skills.py              Methodology guidance per engagement phase
+tests/                 582 automated tests
+Local Development
+Running on the host is supported for development and the test suite, but you must install the security tools yourself — Docker is what guarantees they're all present.
 
-## MCP tool servers
+pip install torch --index-url https://download.pytorch.org/whl/cpu   # skip the multi-GB CUDA build
+pip install -r requirements.txt
+cp .env.example .env
+python main.py              # FastAPI on :8000
+See CONTRIBUTING.md for the architecture overview and contribution rules.
 
-`mcp_servers/recon_server.py` registers ~30 recon/scanning tools (subdomain enum,
-port scanning, HTTP probing, fuzzing, crawling, vuln templates, TLS/WAF checks,
-parameter discovery, SMB enumeration, exploit-DB lookup, whois, etc.) as MCP tools,
-backed by testable wrapper functions in `mcp_servers/tools/`. `mcp_servers/exploit_server.py`
-holds the three tools that actively attack a target (sqlmap, nikto, hydra) and are
-registered with `dangerous=True`. Every scan tool goes through
-`mcp_servers/tools/_common.py::run_command()`, which enforces a real subprocess
-timeout so a hung scan can't block the agent forever.
+Tech Stack
+Layer	Technology
+Backend / API	Python 3, FastAPI, WebSocket
+Agent	Custom ReAct loop
+Tool protocol	Model Context Protocol (MCP SDK / FastMCP)
+Memory	ChromaDB + sentence-transformers (all-MiniLM-L6-v2)
+LLM	Anthropic · OpenAI-compatible · Ollama
+Reporting	Markdown → HTML → PDF (xhtml2pdf)
+Security tools	nmap, nuclei, sqlmap, dalfox, wapiti, hydra, …
+Packaging	Docker, Docker Compose
+Testing	pytest (582 tests)
+Roadmap
+Drive the pipeline with a stronger hosted model and re-measure the benchmarks.
+Automate authenticated (logged-in) scanning to reach deeper attack surface.
+Add dedicated IDOR / SSRF coverage and expand the OWASP surface.
+Fine-tune and evaluate an improved model on the exported preference data.
+Team & Acknowledgements
+Graduation project — Faculty of Computers and Artificial Intelligence.
 
-Wrapper conventions worth knowing:
+Team: Loay Ahmed Badea · Youssef Ali Mohamed · Yehia Mohamed Othman · Mohamed Abd El-Nasser · Omar Ayman Mesbah · Belal Mohamed Youness.
 
-- **Host scanners take a host, not a URL.** `nmap_scan`, `masscan_scan`, and
-  `naabu_scan` normalize their target through `_common.py::strip_url()`, so
-  `http://host/path` is accepted and reduced to `host` (nmap otherwise fails with
-  "Unable to split netmask" and reports zero ports).
-- **HTTP probing uses the ProjectDiscovery binary.** `httpx_scan` invokes
-  `httpx-toolkit` (its Kali/Docker name) so the Python `httpx` HTTP-client CLI in
-  the venv can't shadow it; it falls back to `httpx` for bare-metal installs.
-- **Port presets vs. explicit ports.** `naabu_scan`'s `top_ports` is naabu's
-  preset and only accepts `full`/`100`/`1000`; pass an explicit list/range
-  (`80,443,8080`, `1-1000`) via `ports`. A comma list mistakenly sent as
-  `top_ports` is still routed to `-p` rather than erroring. `masscan_scan`
-  accepts `top_ports` only as an alias for `ports`.
-- **amass in Docker** is symlinked to the upstream binary (`/usr/lib/amass/amass`)
-  to bypass Kali's wrapper script, which otherwise runs `sudo libpostal_data` and
-  fails inside the container. On bare-metal Kali the same wrapper needs libpostal
-  data (or an upstream `amass` earlier on `PATH`).
+Built on the open-source work of the MCP, ReAct, ChromaDB, and OWASP communities, and the many security tools Thaghrawy orchestrates.
 
-`skills.py` maps each phase of a pentest (recon, content discovery, vuln scanning,
-exploitation, network/AD, reporting) to the tools relevant to it and OWASP/PTES-style
-guidance text. `prompt_builder.py` injects this as a methodology reference into every
-system prompt — it's guidance for the LLM's tool-calling loop, not a rigid phase gate.
+Thaghrawy · Autonomous Pentesting Agent · Use responsibly, only within authorized scope.
 
-Note the directory is `mcp_servers/`, not `mcp/` — naming it `mcp/` would shadow the
-installed `mcp` SDK package that these servers themselves import
-(`from mcp.server.fastmcp import FastMCP`).
-
-## Multi-LLM support
-
-Set `LLM_PROVIDER` in `.env` to `anthropic`, `openai`, or `ollama`. `OpenAIProvider`
-also accepts `OPENAI_BASE_URL` for any OpenAI-compatible endpoint (e.g. LM Studio).
-
-## Branch map
-
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for the architecture overview and contribution rules.
-
-## Security notes
-
-- The `shell` and exploitation tools (`sqlmap_scan`, `nikto_scan`, `hydra_bruteforce`)
-  are intentionally dangerous by design — gate usage with engagement scope and
-  `DANGEROUS_COMMANDS_REQUIRE_CONFIRM`.
-- Every shell command is logged to `engagements/sessions/shell_command_log.jsonl`.
-- `.env` is gitignored and CI fails the build if one is ever committed.
+</div>
